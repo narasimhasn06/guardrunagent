@@ -190,6 +190,29 @@ class CostSummaryOut(BaseModel):
     total_tokens: int
 
 
+# ---- GET /cost-breakdown -------------------------------------------------
+# Not in the LLD's API design -- needed for the Cost Dashboard's stacked
+# bar chart (docs/04-ui-ux-design.md Section 3.4: "cost per day, stacked
+# by project or agent"), which GET /cost-summary's single-dimension
+# grouping can't produce. Long/tidy rows (one per day+group combination);
+# pivoting into per-day stacks is dashboard-side presentation logic.
+
+BreakdownDimension = Literal["project", "agent"]
+
+
+class CostBreakdownRow(BaseModel):
+    day: str
+    group_key: str
+    cost_usd: Decimal
+
+
+class CostBreakdownOut(BaseModel):
+    dimension: BreakdownDimension
+    start: datetime
+    end: datetime
+    rows: list[CostBreakdownRow]
+
+
 # ---- GET /dashboard-summary ----------------------------------------------
 # Not in the LLD's route table (Section 6 lists /sessions, /sessions/:id,
 # /cost-summary, /rules, /guardrail-activity as Dashboard Home's data

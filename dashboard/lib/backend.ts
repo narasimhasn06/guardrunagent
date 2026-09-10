@@ -218,3 +218,61 @@ export async function getDashboardSummary(preset: DateRangePreset): Promise<Dash
   }
   return response.json();
 }
+
+// ---- GET /cost-summary and GET /cost-breakdown ---------------------------
+// docs/04-ui-ux-design.md Section 3.4.
+
+export type CostGroupBy = "day" | "project" | "agent";
+
+export interface CostSummaryRow {
+  group_key: string;
+  total_cost_usd: string;
+  total_tokens: number;
+  event_count: number;
+}
+
+export interface CostSummaryOut {
+  group_by: CostGroupBy;
+  start: string;
+  end: string;
+  rows: CostSummaryRow[];
+  total_cost_usd: string;
+  total_tokens: number;
+}
+
+export async function getCostSummary(groupBy: CostGroupBy, start: Date, end: Date): Promise<CostSummaryOut> {
+  const params = new URLSearchParams({ group_by: groupBy, start: start.toISOString(), end: end.toISOString() });
+  const response = await authorizedFetch(`/cost-summary?${params}`);
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to load cost summary (${response.status})`);
+  }
+  return response.json();
+}
+
+export type BreakdownDimension = "project" | "agent";
+
+export interface CostBreakdownRow {
+  day: string;
+  group_key: string;
+  cost_usd: string;
+}
+
+export interface CostBreakdownOut {
+  dimension: BreakdownDimension;
+  start: string;
+  end: string;
+  rows: CostBreakdownRow[];
+}
+
+export async function getCostBreakdown(
+  dimension: BreakdownDimension,
+  start: Date,
+  end: Date
+): Promise<CostBreakdownOut> {
+  const params = new URLSearchParams({ dimension, start: start.toISOString(), end: end.toISOString() });
+  const response = await authorizedFetch(`/cost-breakdown?${params}`);
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to load cost breakdown (${response.status})`);
+  }
+  return response.json();
+}
