@@ -1,0 +1,81 @@
+name: CI
+
+# Runs the three components' test suites on every PR, per
+# docs/05-architecture-document.md Section 5 ("CI: GitHub Actions running
+# tests on every PR") and docs/06-test-plan.md Section 2. Deliberately
+# scoped to "run tests" only -- it does not deploy anything. Auto-deploy
+# to staging on merge to main and manual promote to production (also
+# named in Section 5) are configured on the Railway/Render side instead
+# (see DEPLOYMENT.md), not duplicated here as a second deploy mechanism.
+
+on:
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements-dev.txt
+
+      - run: pytest -q
+        env:
+          # Dummy values -- every test doubles the Supabase client with
+          # tests/fakes.py, so nothing here ever reaches a real project.
+          # Settings() just requires these three to be set to construct.
+          SUPABASE_URL: http://localhost
+          SUPABASE_SERVICE_ROLE_KEY: x
+          SUPABASE_JWT_SECRET: x
+          API_KEY_PEPPER: x
+
+  dashboard:
+    name: Dashboard (vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # dashboard/package.json's jsdom/vitest/undici versions declare
+          # engines.node requiring >=22 (^22.22.2 || ^24.15.0 || >=26.0.0)
+          # -- Node 20 crashes every vitest worker before any test runs
+          # ("TypeError: webidl.util.markAsUncloneable is not a
+          # function", undici's CacheStorage module failing to load under
+          # jsdom). The sdk job below stays on 20; its own dependencies
+          # don't have this constraint.
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: dashboard/package-lock.json
+
+      - run: npm ci
+      - run: npm test
+
+  sdk:
+    name: SDK (vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: sdk/package-lock.json
+
+      - run: npm ci
+      - run: npm test

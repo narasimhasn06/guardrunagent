@@ -1,0 +1,28 @@
+from fastapi import FastAPI
+
+from app.routers import (
+    cost_summary,
+    dashboard_summary,
+    events,
+    guardrail_activity,
+    guardrail_check,
+    rules,
+    sessions,
+    settings,
+)
+
+app = FastAPI(title="GuardrunAgent Backend")
+
+app.include_router(events.router)
+app.include_router(guardrail_check.router)
+app.include_router(rules.router)
+app.include_router(sessions.router)
+app.include_router(cost_summary.router)
+app.include_router(dashboard_summary.router)
+app.include_router(guardrail_activity.router)
+app.include_router(settings.router)
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
