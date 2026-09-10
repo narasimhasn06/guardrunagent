@@ -99,6 +99,53 @@ class TestGetRules:
         assert response.status_code == 401
 
 
+class TestUpdateRule:
+    RULE_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+    def test_toggles_enabled_for_the_callers_org(self, client):
+        _override_jwt_auth()
+        updated_row = {**ENABLED_RULE_ROW, "enabled": False}
+        fake = FakeSupabase(table_data={"guardrail_rules": {"update": [updated_row]}})
+
+        with patch("app.routers.rules.get_supabase", return_value=fake):
+            response = client.patch(f"/rules/{self.RULE_ID}", json={"enabled": False})
+
+        assert response.status_code == 200
+        assert response.json()["enabled"] is False
+
+        update_calls = [c for c in fake.recorded_calls if c[0] == "update" and c[1] == "guardrail_rules"]
+        assert update_calls == [("update", "guardrail_rules", {"enabled": False})]
+
+    def test_only_sends_the_fields_that_were_actually_set(self, client):
+        _override_jwt_auth()
+        fake = FakeSupabase(table_data={"guardrail_rules": {"update": [ENABLED_RULE_ROW]}})
+
+        with patch("app.routers.rules.get_supabase", return_value=fake):
+            response = client.patch(f"/rules/{self.RULE_ID}", json={"name": "renamed-rule"})
+
+        assert response.status_code == 200
+        update_calls = [c for c in fake.recorded_calls if c[0] == "update" and c[1] == "guardrail_rules"]
+        assert update_calls == [("update", "guardrail_rules", {"name": "renamed-rule"})]
+
+    def test_empty_body_is_rejected(self, client):
+        _override_jwt_auth()
+        response = client.patch(f"/rules/{self.RULE_ID}", json={})
+        assert response.status_code == 400
+
+    def test_unknown_rule_id_returns_404(self, client):
+        _override_jwt_auth()
+        fake = FakeSupabase(table_data={"guardrail_rules": {"update": []}})
+
+        with patch("app.routers.rules.get_supabase", return_value=fake):
+            response = client.patch(f"/rules/{self.RULE_ID}", json={"enabled": False})
+
+        assert response.status_code == 404
+
+    def test_requires_jwt_auth_not_api_key(self, client):
+        response = client.patch(f"/rules/{self.RULE_ID}", json={"enabled": False})
+        assert response.status_code == 401
+
+
 class TestCreateRule:
     def test_creates_a_rule_for_the_callers_org(self, client):
         _override_jwt_auth()

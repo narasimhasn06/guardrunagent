@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth import RulesAuth, UserAuth, verify_api_key_or_jwt, verify_jwt
 from app.db import get_supabase
-from app.schemas import RuleCreateIn, RuleOut, RulesOut
+from app.schemas import RuleCreateIn, RuleOut, RulesOut, RuleUpdateIn
 from app.starter_rules import STARTER_RULES
 
 router = APIRouter()
@@ -23,6 +25,28 @@ def get_rules(auth: RulesAuth = Depends(verify_api_key_or_jwt)) -> RulesOut:
     )
 
     return RulesOut(rules=[RuleOut(**row) for row in result.data or []])
+
+
+@router.patch("/rules/{rule_id}", response_model=RuleOut)
+def update_rule(rule_id: UUID, body: RuleUpdateIn, auth: UserAuth = Depends(verify_jwt)) -> RuleOut:
+    supabase = get_supabase()
+
+    updates = body.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
+
+    result = (
+        supabase.table("guardrail_rules")
+        .update(updates)
+        .eq("id", str(rule_id))
+        .eq("org_id", str(auth.org_id))  # never let one org edit another's rule
+        .execute()
+    )
+
+    if not result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
+
+    return RuleOut(**result.data[0])
 
 
 @router.post("/rules", response_model=RuleOut, status_code=201)

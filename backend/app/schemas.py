@@ -165,6 +165,47 @@ class RuleCreateIn(BaseModel):
     enabled: bool = True
 
 
+class RuleUpdateIn(BaseModel):
+    """PATCH /rules/{id} -- a standard partial update. The dashboard's
+    Rules tab only ever sends {"enabled": ...} today, for the "Enabled
+    toggle" (docs/04-ui-ux-design.md Section 3.5); the other fields are
+    accepted for completeness (a rename, a pattern fix) rather than
+    building a narrower "toggle-only" endpoint, since no field here costs
+    anything extra to support.
+    """
+
+    name: str | None = None
+    pattern_type: Literal["command_regex", "path_prefix", "action_type"] | None = None
+    pattern_value: str | None = None
+    action_on_match: Literal["block", "flag"] | None = None
+    enabled: bool | None = None
+
+
+# ---- GET /guardrail-activity ---------------------------------------------
+# Activity Log tab per docs/04-ui-ux-design.md Section 3.5: "timestamp,
+# rule name, session link, action taken, whether the Slack alert was
+# successfully delivered." Named in the LLD's dashboard pages table
+# (Section 6: "GET /guardrail-activity") but never specified in the API
+# design (Section 4).
+
+
+class GuardrailActivityItem(BaseModel):
+    id: UUID
+    fired_at: datetime
+    rule_id: UUID | None
+    rule_name: str | None  # null if the rule was since deleted
+    action_on_match: Literal["block", "flag"] | None
+    session_id: UUID | None
+    alert_sent: bool
+
+
+class GuardrailActivityOut(BaseModel):
+    activity: list[GuardrailActivityItem]
+    total_count: int
+    limit: int
+    offset: int
+
+
 # ---- GET /cost-summary --------------------------------------------------
 # Response shape per docs/03-low-level-design.md Section 4.4. The LLD names
 # a single "date_range" query param without specifying its shape; this

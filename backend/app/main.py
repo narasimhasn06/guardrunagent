@@ -1,6 +1,14 @@
 from fastapi import FastAPI
 
-from app.routers import cost_summary, dashboard_summary, events, guardrail_check, rules, sessions
+from app.routers import (
+    cost_summary,
+    dashboard_summary,
+    events,
+    guardrail_activity,
+    guardrail_check,
+    rules,
+    sessions,
+)
 
 app = FastAPI(title="GuardrunAgent Backend")
 
@@ -10,6 +18,7 @@ app.include_router(rules.router)
 app.include_router(sessions.router)
 app.include_router(cost_summary.router)
 app.include_router(dashboard_summary.router)
+app.include_router(guardrail_activity.router)
 
 
 @app.get("/health")

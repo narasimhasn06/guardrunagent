@@ -83,6 +83,35 @@ def test_matching_rule_returns_the_right_decision_and_rule_id(client):
     assert body["rule_name"] == "no-force-push-main"
 
 
+def test_matching_rule_records_the_session_id_on_the_activity_row(client):
+    # session_id links the Activity Log (docs/04-ui-ux-design.md Section
+    # 3.5) firing back to its session.
+    _override_org_auth()
+    fake = FakeSupabase(
+        table_data={
+            "guardrail_rules": [FORCE_PUSH_RULE],
+            "guardrail_activity": {"data": [{"id": "activity-1"}]},
+            "orgs": {"slack_webhook_url": None},
+        }
+    )
+
+    with (
+        patch("app.routers.guardrail_check.get_supabase", return_value=fake),
+        patch("app.routers.guardrail_check.get_settings", return_value=_fake_settings()),
+    ):
+        client.post(
+            "/guardrail-check",
+            json={
+                "session_id": SESSION_ID,
+                "action_type": "bash",
+                "action_summary": "git push --force origin main",
+            },
+        )
+
+    insert_calls = [c for c in fake.recorded_calls if c[0] == "insert" and c[1] == "guardrail_activity"]
+    assert insert_calls[0][2]["session_id"] == SESSION_ID
+
+
 def test_no_rule_match_returns_allow(client):
     _override_org_auth()
     fake = FakeSupabase(table_data={"guardrail_rules": []})

@@ -169,6 +169,95 @@ export async function getRules(): Promise<RuleOut[]> {
   return body.rules;
 }
 
+export interface RuleCreateIn {
+  name: string;
+  pattern_type: "command_regex" | "path_prefix" | "action_type";
+  pattern_value: string;
+  action_on_match: "block" | "flag";
+  enabled?: boolean;
+}
+
+export interface RuleUpdateIn {
+  name?: string;
+  pattern_type?: "command_regex" | "path_prefix" | "action_type";
+  pattern_value?: string;
+  action_on_match?: "block" | "flag";
+  enabled?: boolean;
+}
+
+// createRule/updateRule/enableStarterRules are called from Route Handlers
+// (app/api/rules/**) rather than directly from Server Components -- they
+// run in response to client-side button/toggle interactions
+// (components/rules/*), which can't call a server-only helper like
+// authorizedFetch (it needs the request's cookie jar) directly from the
+// browser.
+
+export async function createRule(input: RuleCreateIn): Promise<RuleOut> {
+  const response = await authorizedFetch("/rules", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to create rule (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function updateRule(id: string, input: RuleUpdateIn): Promise<RuleOut> {
+  const response = await authorizedFetch(`/rules/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to update rule (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function enableStarterRules(): Promise<RuleOut[]> {
+  const response = await authorizedFetch("/rules/starter", { method: "POST" });
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to enable starter rules (${response.status})`);
+  }
+  const body = (await response.json()) as { rules: RuleOut[] };
+  return body.rules;
+}
+
+// ---- GET /guardrail-activity ---------------------------------------------
+// Activity Log tab, docs/04-ui-ux-design.md Section 3.5: "timestamp, rule
+// name, session link, action taken, whether the Slack alert was
+// successfully delivered."
+
+export interface GuardrailActivityItem {
+  id: string;
+  fired_at: string;
+  rule_id: string | null;
+  rule_name: string | null;
+  action_on_match: "block" | "flag" | null;
+  session_id: string | null;
+  alert_sent: boolean;
+}
+
+export interface GuardrailActivityOut {
+  activity: GuardrailActivityItem[];
+  total_count: number;
+  limit: number;
+  offset: number;
+}
+
+export async function getGuardrailActivity(offset = 0): Promise<GuardrailActivityOut> {
+  const params = new URLSearchParams();
+  if (offset) params.set("offset", String(offset));
+
+  const response = await authorizedFetch(`/guardrail-activity?${params.toString()}`);
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to load guardrail activity (${response.status})`);
+  }
+  return response.json();
+}
+
 // ---- GET /dashboard-summary --------------------------------------------
 // Not a documented endpoint (see the comment in backend/app/schemas.py) --
 // added because Home's stat cards, spend chart, and recent activity don't

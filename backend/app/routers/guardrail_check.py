@@ -45,14 +45,16 @@ def post_guardrail_check(
     # no event row yet to link to. guardrail_activity.event_id is
     # nullable, so this doesn't violate the FK -- but nothing currently
     # backfills it once the event is logged. Flagged as an open gap.
-    # (guardrail_activity has no session_id column to record body.session_id
-    # on either -- it's only used below to build the Slack alert's link.)
+    #
+    # session_id *is* recorded, though -- it's what the Activity Log
+    # (docs/04-ui-ux-design.md Section 3.5) links to.
     activity = (
         supabase.table("guardrail_activity")
         .insert(
             {
                 "rule_id": str(matched["id"]),
                 "event_id": None,
+                "session_id": str(body.session_id),
                 "org_id": str(auth.org_id),
                 "alert_sent": False,
             }

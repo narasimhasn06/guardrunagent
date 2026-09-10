@@ -863,6 +863,131 @@ input:focus {
   }
 }
 
+/* ---- Guardrail Rules page ------------------------------------------ */
+
+.rules-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rules-toolbar {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rules-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+.rules-table th {
+  text-align: left;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  font-size: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.rules-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.rules-table tr:last-child td {
+  border-bottom: none;
+}
+
+.toggle-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  cursor: pointer;
+}
+
+.toggle-switch:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.toggle-switch-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  transition: transform 0.12s ease;
+}
+
+.toggle-switch.on {
+  background: color-mix(in srgb, var(--color-success) 30%, transparent);
+  border-color: var(--color-success);
+}
+
+.toggle-switch.on .toggle-switch-thumb {
+  background: var(--color-success);
+  transform: translateX(16px);
+}
+
+.new-rule-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 16px;
+  max-width: 420px;
+}
+
+.new-rule-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+.new-rule-form-field select,
+.new-rule-form-field input[type="text"] {
+  width: 100%;
+}
+
+.new-rule-form-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 16px;
+  font-size: 14px;
+}
+
+.new-rule-form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.starter-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 /* ---- Cost Dashboard (docs/04-ui-ux-design.md Section 3.4) ------------ */
 
 .cost-page {
