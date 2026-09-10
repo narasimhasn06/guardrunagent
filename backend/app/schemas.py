@@ -66,6 +66,46 @@ class SessionDetailOut(BaseModel):
     offset: int
 
 
+# ---- GET /sessions (list) -----------------------------------------------
+# Not in the LLD's API design (Section 4 only covers /events,
+# /guardrail-check, /sessions/:id, /cost-summary) but named as the
+# Sessions List page's data source in Section 6. Columns/filters/search
+# per docs/04-ui-ux-design.md Section 3.2.
+#
+# The UI doc's Status filter lists "success/blocked/flagged/error" --
+# those are agent_events.status values (Section 1's schema), not
+# sessions.status, which is 'active' | 'completed' | 'error'. Filtering
+# by "sessions containing a blocked/flagged event" would need a join the
+# doc doesn't otherwise ask for; this filters by the real sessions.status
+# enum instead and flags the mismatch rather than silently building the
+# cross-table version.
+
+
+class SessionListItem(BaseModel):
+    id: UUID
+    agent_name: str
+    project_label: str | None
+    started_at: datetime
+    ended_at: datetime | None
+    total_cost_usd: Decimal
+    total_tokens: int
+    status: SessionStatus
+    event_count: int
+
+
+class SessionsFilterOptions(BaseModel):
+    projects: list[str]
+    agents: list[str]
+
+
+class SessionsListOut(BaseModel):
+    sessions: list[SessionListItem]
+    total_count: int
+    limit: int
+    offset: int
+    filters: SessionsFilterOptions
+
+
 # ---- POST /guardrail-check ---------------------------------------------
 # Response shape per docs/03-low-level-design.md Section 4.2. The request
 # adds `session_id` on top of the documented shape (action_type,

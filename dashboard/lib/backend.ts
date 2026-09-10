@@ -37,6 +37,72 @@ export interface SessionDetailOut {
   offset: number;
 }
 
+// ---- GET /sessions (list) ------------------------------------------------
+// Not documented (see the comment in backend/app/schemas.py). The status
+// filter uses SessionStatus (active/completed/error) -- the UI doc's
+// "success/blocked/flagged/error" list is agent_events.status, a
+// different enum; there's no "sessions containing a blocked event" filter
+// here, flagged rather than silently built.
+
+export interface SessionListItem {
+  id: string;
+  agent_name: string;
+  project_label: string | null;
+  started_at: string;
+  ended_at: string | null;
+  total_cost_usd: string;
+  total_tokens: number;
+  status: SessionStatus;
+  event_count: number;
+}
+
+export interface SessionsFilterOptions {
+  projects: string[];
+  agents: string[];
+}
+
+export interface SessionsListOut {
+  sessions: SessionListItem[];
+  total_count: number;
+  limit: number;
+  offset: number;
+  filters: SessionsFilterOptions;
+}
+
+export type SessionsDateRangePreset = "all" | "7d" | "30d";
+
+export interface SessionsListParams {
+  project?: string;
+  agent?: string;
+  search?: string;
+  status?: SessionStatus;
+  dateRange?: SessionsDateRangePreset;
+  offset?: number;
+}
+
+export async function getSessionsList(params: SessionsListParams): Promise<SessionsListOut> {
+  const query = new URLSearchParams();
+  if (params.project) query.set("project", params.project);
+  if (params.agent) query.set("agent", params.agent);
+  if (params.search) query.set("search", params.search);
+  if (params.status) query.set("status", params.status);
+  if (params.offset) query.set("offset", String(params.offset));
+
+  if (params.dateRange && params.dateRange !== "all") {
+    const days = params.dateRange === "30d" ? 30 : 7;
+    const end = new Date();
+    const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
+    query.set("start", start.toISOString());
+    query.set("end", end.toISOString());
+  }
+
+  const response = await authorizedFetch(`/sessions?${query.toString()}`);
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to load sessions (${response.status})`);
+  }
+  return response.json();
+}
+
 export interface RuleOut {
   id: string;
   name: string;
