@@ -16,9 +16,17 @@
 # "environments" feature handles the actual staging/production split --
 # distinct variable sets and deploy branches, both set in the dashboard,
 # same as the *.env.*.example split for Render).
+#
+# `builder = "RAILPACK"`, not "NIXPACKS": a real deploy against this repo
+# showed Railway building with "railpack-v0.39.0" regardless, and with
+# builder set to NIXPACKS the [deploy] section (startCommand in
+# particular) was silently not applied at all ("No start command
+# detected") -- consistent with Railway now rejecting/ignoring the whole
+# file for an unrecognized builder value rather than just that field.
+# Railpack is also what Railway's own docs repo's railway.json uses.
 
 [build]
-builder = "NIXPACKS"
+builder = "RAILPACK"
 buildCommand = "pip install -r requirements.txt"
 
 [deploy]

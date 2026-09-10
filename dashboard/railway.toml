@@ -21,9 +21,13 @@
 # but this repo doesn't pin one, so setting NODE_VERSION explicitly in
 # the dashboard is the reliable path given the Node >=22 requirement
 # from dashboard/package.json's jsdom/vitest/undici versions.
+#
+# `builder = "RAILPACK"`, not "NIXPACKS": see the comment in
+# backend/railway.toml -- a real deploy against this repo showed
+# NIXPACKS causing Railway to silently skip the whole [deploy] section.
 
 [build]
-builder = "NIXPACKS"
+builder = "RAILPACK"
 buildCommand = "npm ci && npm run build"
 
 [deploy]
