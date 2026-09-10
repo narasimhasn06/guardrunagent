@@ -1,0 +1,29 @@
+# Railway config-as-code for the backend service. See DEPLOYMENT.md for
+# the setup steps (Railway section) -- one thing this file can't do:
+# Root Directory ("backend") must be set in Railway's dashboard when the
+# service is created, not here. As of railwayapp/cli#839 (still open),
+# rootDirectory isn't settable via config-as-code at all, only via the
+# dashboard or a raw GraphQL mutation.
+#
+# DEPRECATION NOTE: this format (railway.json/railway.toml "Config as
+# Code") is being phased out in favor of a new TypeScript-based
+# .railway/railway.ts Infrastructure-as-Code system. This file keeps
+# working until Railway's stated cutoff of 2026-12-01 -- migrate before
+# then. See CLAUDE.md's decisions log.
+#
+# No [environments.*] overrides here: staging and production use the
+# identical build/start/health-check config below (Railway's separate
+# "environments" feature handles the actual staging/production split --
+# distinct variable sets and deploy branches, both set in the dashboard,
+# same as the *.env.*.example split for Render).
+
+[build]
+builder = "NIXPACKS"
+buildCommand = "pip install -r requirements.txt"
+
+[deploy]
+startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

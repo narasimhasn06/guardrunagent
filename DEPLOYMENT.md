@@ -7,25 +7,34 @@ its own Supabase project.
 
 ## Current status
 
-- **Render**: `render.yaml` at the repo root defines all four services
-  (backend x{staging, production}, dashboard x{staging, production}).
-  Verified against Render's current Blueprint spec.
-- **Railway**: not configured yet. Railway's "Config as Code"
-  (`railway.json`/`railway.toml`) is being deprecated in favor of a new
-  TypeScript-based `.railway/railway.ts` Infrastructure-as-Code system;
-  the old format only keeps working until **2026-12-01**, and the new
-  format's docs weren't reachable to verify while writing this, so
-  nothing was written rather than guess at syntax that might not apply
-  cleanly. If you want Railway, either configure it directly in Railway's
-  dashboard (no config file required) or revisit this once
-  `.railway/railway.ts`'s docs can be checked against.
+- **Railway** (the current actual deployment target -- no Render
+  subscription is available): `backend/railway.toml` and
+  `dashboard/railway.toml` define each service's build/deploy config.
+  Verified against real, current `railway.json`/`railway.toml` examples
+  (Railway's own docs repo, and several public repos using the format
+  today) rather than Railway's own docs site, which this session's
+  network access can't reach. One thing config-as-code genuinely can't
+  do: each service's **Root Directory** must be set in Railway's
+  dashboard when the service is created (confirmed via
+  [railwayapp/cli#839](https://github.com/railwayapp/cli/issues/839),
+  still open) -- see "Deploying via Railway" below.
+  **Deprecation note**: this config format is being phased out in favor
+  of a new TypeScript `.railway/railway.ts` Infrastructure-as-Code
+  system. It keeps working until Railway's stated cutoff of
+  **2026-12-01** -- migrate before then (revisit once that system's docs
+  are reachable to verify against, or from a machine that can reach
+  docs.railway.com).
+- **Render**: `render.yaml` at the repo root also still defines all four
+  services (backend x{staging, production}, dashboard x{staging,
+  production}), verified against Render's current Blueprint spec. Kept
+  in the repo as a ready-to-use alternative for whenever a Render
+  subscription exists -- not the active path right now.
 - **CI**: `.github/workflows/ci.yml` runs the backend/dashboard/SDK test
   suites on every PR. It does not deploy anything -- see "How deploys
   actually happen" below.
-- **Supabase**: only one project exists today (created earlier in this
-  project, all current migrations applied to it). A second project is
-  needed before this staging/production split is real -- see
-  "Before the first deploy" below.
+- **Supabase**: the existing project (created earlier in this project,
+  all migrations applied) is designated **staging**. A second project is
+  needed for production -- see "Before the first deploy" below.
 
 ## Before the first deploy
 
@@ -43,6 +52,54 @@ its own Supabase project.
 3. Decide the deploy region (`region: oregon` in `render.yaml` is a
    placeholder -- Section 5 says this should be "chosen based on where
    pilot customers are concentrated," which hasn't been decided).
+
+## Deploying via Railway
+
+1. In the Railway dashboard: **New Project > Deploy from GitHub repo**,
+   pick this repo. Railway creates one service from it -- rename it
+   `guardrunagent-backend-staging`.
+2. Open that service's **Settings**:
+   - **Root Directory**: `backend` (config-as-code can't set this --
+     see "Current status" above).
+   - **Config File Path**: leave as default (`railway.toml`) -- Railway
+     looks for it inside the Root Directory once that's set, so it'll
+     find `backend/railway.toml` automatically.
+   - **Region**: Singapore (pilot customers are concentrated in
+     Southeast Asia).
+3. Under that service's **Variables** tab, add:
+   - `SUPABASE_URL` = `https://ldycthbglwbtmzzvijyy.supabase.co`
+   - `SUPABASE_SERVICE_ROLE_KEY` = (that Supabase project -> Project
+     Settings -> API -> service_role key)
+   - `SUPABASE_JWT_SECRET` = (same page -> JWT Settings -> JWT Secret)
+   - `API_KEY_PEPPER` = a random secret generated for this purpose --
+     treat it like any other credential, never commit it
+   - `DASHBOARD_URL` = leave blank for now, step 6 below
+   - Railway injects `PORT` automatically; nothing to set for it.
+4. Deploy. Watch the build logs -- `pip install -r requirements.txt`
+   should succeed and the service should go healthy against `/health`
+   (from `backend/railway.toml`'s `healthcheckPath`).
+5. Repeat steps 1-4 for the dashboard: **New Service > GitHub repo**
+   (same repo, same project) -> name it `guardrunagent-dashboard-staging`
+   -> Root Directory `dashboard`, Region Singapore -> Variables:
+   - `NODE_VERSION` = `22.20.0` (dashboard/package.json's jsdom/vitest/
+     undici require Node >=22 -- see `dashboard/railway.toml`'s comment)
+   - `NEXT_PUBLIC_SUPABASE_URL` = `https://ldycthbglwbtmzzvijyy.supabase.co`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = (Supabase project -> Project
+     Settings -> API -> anon/public key)
+   - `NEXT_PUBLIC_BACKEND_URL` = leave blank for now
+6. Once both are deployed, each has a `*.up.railway.app` domain (under
+   the service's **Settings > Networking**, generate one if it isn't
+   there already). Go back and set the real values:
+   - Backend service's `DASHBOARD_URL` = the dashboard's domain
+   - Dashboard service's `NEXT_PUBLIC_BACKEND_URL` = the backend's
+     domain, then **redeploy** -- `NEXT_PUBLIC_*` values are baked in at
+     build time, so saving the variable alone doesn't apply it.
+7. For **production**, later: a new Railway **environment** inside the
+   same project (Railway's environments feature -- separate variable
+   sets and, per-environment, which branch/deploy trigger to use),
+   pointed at the second Supabase project once that exists. Set it to
+   deploy manually rather than on every push to `main`, matching
+   Section 5's "manual promote to production."
 
 ## Deploying via Render
 
