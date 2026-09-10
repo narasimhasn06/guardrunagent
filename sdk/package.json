@@ -2,7 +2,7 @@
   "name": "@guardrunagent/sdk",
   "version": "0.1.0",
   "description": "GuardrunAgent SDK -- Claude Code hooks for event logging and guardrail checks",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "files": [
     "dist",
     "hooks",
