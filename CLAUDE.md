@@ -14,9 +14,9 @@ relevant doc before making a design decision that isn't already specified:
 
 ## Stack
 - SDK: TypeScript, Claude Code hooks
-- Backend: FastAPI (Python), hosted on Render (see "Decisions made during implementation" — Railway is deferred)
+- Backend: FastAPI (Python), hosted on Railway (see "Decisions made during implementation" — Render config also exists, unused for now)
 - DB + Auth: Supabase (Postgres + Supabase Auth — email/password + Google OAuth, linked by email)
-- Dashboard: Next.js, hosted on Render
+- Dashboard: Next.js, hosted on Railway
 
 ## Conventions
 - Don't introduce new libraries/services not already named in the docs without flagging it first.
@@ -68,11 +68,33 @@ rationale lives in the referenced code's own comments.
   `API_KEY_PEPPER` config value (server-only secret) and is a breaking
   change for any already-issued API key — regenerate after deploying
   this.
-- **Deployment target: Render, not Railway**, for now. Railway's
-  config-as-code format (`railway.json`/`railway.toml`) is being
-  deprecated (dead 2026-12-01) in favor of a new IaC system this session
-  couldn't verify against current docs. See `DEPLOYMENT.md`.
+- **Deployment target: Railway** (no Render subscription available).
+  `backend/railway.toml` and `dashboard/railway.toml` use the legacy
+  "Config as Code" format, verified against real current examples (not
+  Railway's own docs site, which this session's network access can't
+  reach) — it's deprecated in favor of a new `.railway/railway.ts`
+  system, dead **2026-12-01**, so this needs migrating before then. One
+  thing config-as-code can't set at all: each service's Root Directory,
+  which has to be set in Railway's dashboard (railwayapp/cli#839, still
+  open). `render.yaml` is still in the repo and fully valid, kept as a
+  ready-to-use alternative once/if a Render subscription exists. See
+  `DEPLOYMENT.md`.
 - **Dashboard client-side mutations** (toggles, forms, buttons) never
   call the backend directly from the browser — they go through
   same-origin Next.js Route Handlers under `dashboard/app/api/**`, which
   forward the signed-in user's Supabase JWT server-side.
+- **JWT verification: Supabase's public JWKS (ES256), not a single
+  shared secret.** docs/03-low-level-design.md Section 2.2 originally
+  described verifying against one "public JWT secret" (HS256). Supabase
+  has since moved to "JWT Signing Keys" -- an asymmetric key, verified
+  against the project's `/auth/v1/.well-known/jwks.json` -- and this
+  project's real deployment already had its key rotated to ES256, which
+  broke login in staging until caught (a persistent 401 on every
+  authenticated dashboard request, no matter how carefully
+  `SUPABASE_JWT_SECRET` was re-copied, since that legacy secret no
+  longer signs anything). `app/auth.py`'s `verify_jwt` now tries the
+  JWKS/ES256 path first and falls back to the legacy HS256 secret only
+  when no matching key is found (a project that hasn't migrated) --
+  never partially overlapping, since JWKS only ever publishes
+  asymmetric keys. Needed a new dependency, `cryptography` (PyJWT's
+  ES256/RS256 support requires it).

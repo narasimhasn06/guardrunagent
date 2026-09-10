@@ -5,16 +5,24 @@ Cases per docs/06-test-plan.md Section 3.2 ("JWT verification middleware"):
 - Expired JWT is rejected
 - Malformed/missing JWT is rejected
 - JWT for a user with no org_members row is handled gracefully (doesn't crash)
+
+All the HS256-signed tokens below (_make_token, no `kid` header) exercise
+_decode_supabase_jwt's fallback path -- PyJWKClient.get_signing_key_from_jwt
+raises immediately on a missing `kid` (no network call attempted), so these
+double as coverage for "project hasn't migrated to JWT Signing Keys." The
+ES256/JWKS path (the current default -- see CLAUDE.md's decisions log) has
+its own dedicated test below.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import UUID
 
 import jwt
 import pytest
+from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi import HTTPException
 
 from app.auth import verify_jwt
@@ -69,6 +77,67 @@ def test_valid_jwt_is_accepted():
     assert result.org_id == UUID(ORG_ID)
     assert result.role == "admin"
     assert result.email == "jane@example.com"
+
+
+def test_valid_es256_jwt_verified_via_jwks_is_accepted():
+    # Supabase's current default: JWT Signing Keys, an asymmetric key
+    # (ES256) verified against the project's public JWKS endpoint, not a
+    # shared secret. Mocks only the network fetch (get_signing_key_from_jwt)
+    # -- the actual signature verification below is real cryptography
+    # against a real EC keypair, not a stub.
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    token = jwt.encode(
+        {
+            "sub": AUTH_USER_ID,
+            "aud": "authenticated",
+            "email": "jane@example.com",
+            "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+        },
+        private_key,
+        algorithm="ES256",
+        headers={"kid": "test-kid"},
+    )
+    fake = _supabase_with_member({"org_id": ORG_ID, "role": "admin", "email": "jane@example.com"})
+    mock_signing_key = MagicMock(key=private_key.public_key())
+
+    with (
+        patch("app.auth.get_settings", return_value=_settings()),
+        patch("app.auth.get_supabase", return_value=fake),
+        patch("app.auth.PyJWKClient.get_signing_key_from_jwt", return_value=mock_signing_key),
+    ):
+        result = verify_jwt(authorization=f"Bearer {token}")
+
+    assert result.org_id == UUID(ORG_ID)
+    assert result.role == "admin"
+
+
+def test_es256_jwt_with_wrong_key_is_rejected():
+    # A JWKS lookup that returns a key that doesn't actually match the
+    # token's real signature must still fail closed, not fall through to
+    # the HS256 legacy path (that would mean any expired/replaced signing
+    # key silently downgrades security).
+    real_key = ec.generate_private_key(ec.SECP256R1())
+    wrong_key = ec.generate_private_key(ec.SECP256R1())
+    token = jwt.encode(
+        {
+            "sub": AUTH_USER_ID,
+            "aud": "authenticated",
+            "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+        },
+        real_key,
+        algorithm="ES256",
+        headers={"kid": "test-kid"},
+    )
+    mock_signing_key = MagicMock(key=wrong_key.public_key())
+
+    with (
+        patch("app.auth.get_settings", return_value=_settings()),
+        patch("app.auth.PyJWKClient.get_signing_key_from_jwt", return_value=mock_signing_key),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            verify_jwt(authorization=f"Bearer {token}")
+
+    assert exc_info.value.status_code == 401
 
 
 def test_expired_jwt_is_rejected():
