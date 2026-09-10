@@ -29,6 +29,15 @@ FORCE_PUSH_RULE = {
     "enabled": True,
 }
 
+PROD_EDIT_FLAG_RULE = {
+    "id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+    "name": "review-prod-edits",
+    "pattern_type": "path_prefix",
+    "pattern_value": "/prod/",
+    "action_on_match": "flag",
+    "enabled": True,
+}
+
 
 def _override_org_auth() -> None:
     app.dependency_overrides[verify_api_key] = lambda: OrgAuth(org_id=UUID(ORG_ID))
@@ -113,6 +122,42 @@ def test_missing_session_id_returns_4xx(client):
         json={"action_type": "bash", "action_summary": "npm install"},
     )
     assert 400 <= response.status_code < 500
+
+
+def test_flagged_action_also_dispatches_a_slack_alert(client):
+    # docs/03-low-level-design.md Section 4.2: "On block or flag:
+    # async-dispatch to alerting service" -- a flag isn't just a silent
+    # log entry, it alerts the same as a block.
+    _override_org_auth()
+    fake = FakeSupabase(
+        table_data={
+            "guardrail_rules": [PROD_EDIT_FLAG_RULE],
+            "guardrail_activity": {"data": [{"id": "activity-1"}]},
+            "orgs": {"slack_webhook_url": "https://hooks.slack.example/services/xyz"},
+        }
+    )
+
+    with (
+        patch("app.routers.guardrail_check.get_supabase", return_value=fake),
+        patch("app.routers.guardrail_check.get_settings", return_value=_fake_settings()),
+        patch("app.alerting.get_supabase", return_value=fake),
+        patch("app.alerting.httpx.post", return_value=FakeSlackResponse()) as slack_post,
+    ):
+        response = client.post(
+            "/guardrail-check",
+            json={
+                "session_id": SESSION_ID,
+                "action_type": "file_edit",
+                "action_summary": "edited /prod/config.yaml",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["decision"] == "flag"
+    slack_post.assert_called_once()
+    assert "flagged" in slack_post.call_args.kwargs["json"]["text"]
+    update_calls = [c for c in fake.recorded_calls if c[0] == "update" and c[1] == "guardrail_activity"]
+    assert update_calls == [("update", "guardrail_activity", {"alert_sent": True})]
 
 
 def test_blocked_action_dispatches_slack_alert_and_records_success(client):
