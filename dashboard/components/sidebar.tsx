@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+
+import { createClient } from "@/lib/supabase/client";
 
 /**
  * Five primary nav items, no deeper nesting than two levels --
@@ -15,8 +17,19 @@ const NAV_ITEMS = [
   { href: "/settings", label: "Settings" },
 ];
 
-export function Sidebar() {
+// docs/04-ui-ux-design.md never specifies where sign-out lives -- the
+// sidebar footer is the conventional spot and keeps it reachable from
+// every page without adding a new nav item.
+export function Sidebar({ userEmail }: { userEmail?: string }) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  async function handleSignOut() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/login");
+    router.refresh();
+  }
 
   return (
     <nav className="sidebar" aria-label="Primary">
@@ -37,6 +50,12 @@ export function Sidebar() {
           );
         })}
       </ul>
+      <div className="sidebar-footer">
+        {userEmail && <div className="sidebar-user">{userEmail}</div>}
+        <button type="button" className="sidebar-link sidebar-signout" onClick={handleSignOut}>
+          Sign out
+        </button>
+      </div>
     </nav>
   );
 }
