@@ -67,10 +67,16 @@ class SessionDetailOut(BaseModel):
 
 
 # ---- POST /guardrail-check ---------------------------------------------
-# Request/response shapes per docs/03-low-level-design.md Section 4.2.
+# Response shape per docs/03-low-level-design.md Section 4.2. The request
+# adds `session_id` on top of the documented shape (action_type,
+# action_summary only) -- needed so a blocked/flagged action's Slack alert
+# can link back to the session, and so guardrail_activity's event_id could
+# eventually be correlated to the session's events. A deliberate deviation
+# from "exactly as specified," not an oversight.
 
 
 class GuardrailCheckIn(BaseModel):
+    session_id: UUID
     action_type: ActionType
     action_summary: str | None = None
 

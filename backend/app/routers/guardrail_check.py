@@ -4,6 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 
 from app.alerting import dispatch_guardrail_alert
 from app.auth import OrgAuth, verify_api_key
+from app.config import get_settings
 from app.db import get_supabase
 from app.guardrails import match_rule
 from app.schemas import GuardrailCheckIn, GuardrailCheckOut
@@ -44,6 +45,8 @@ def post_guardrail_check(
     # no event row yet to link to. guardrail_activity.event_id is
     # nullable, so this doesn't violate the FK -- but nothing currently
     # backfills it once the event is logged. Flagged as an open gap.
+    # (guardrail_activity has no session_id column to record body.session_id
+    # on either -- it's only used below to build the Slack alert's link.)
     activity = (
         supabase.table("guardrail_activity")
         .insert(
@@ -74,6 +77,8 @@ def post_guardrail_check(
         rule_name=matched["name"],
         action_summary=body.action_summary,
         decision=decision,
+        session_id=str(body.session_id),
+        dashboard_url=get_settings().dashboard_url,
     )
 
     return GuardrailCheckOut(decision=decision, rule_id=matched["id"], rule_name=matched["name"])

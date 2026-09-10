@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     supabase_service_role_key: str  # server-only, bypasses RLS
     supabase_jwt_secret: str  # verifies dashboard-user Supabase JWTs
 
+    # Optional: base URL of the Next.js dashboard (e.g.
+    # https://app.guardrunagent.com), used to build the "Session [link]" in
+    # guardrail Slack alerts (docs/03-low-level-design.md Section 5). Not
+    # yet fixed by the docs -- unset until the dashboard is deployed and a
+    # real URL exists; alerts omit the link until then.
+    dashboard_url: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:
