@@ -91,7 +91,7 @@ CREATE TABLE guardrail_activity (
 2. Next.js calls the Supabase Auth client SDK directly (`supabase-js`) — Supabase handles the OAuth redirect flow for Google, or validates the password directly
 3. On success, Supabase issues a JWT (session token), stored client-side by the Supabase client library
 4. Every request from the dashboard to the FastAPI backend includes this JWT in the `Authorization` header
-5. FastAPI verifies the JWT signature using Supabase's public JWT secret (no round-trip call to Supabase needed per-request — verification is local/stateless)
+5. FastAPI verifies the JWT signature locally (no round-trip call to Supabase's Auth API needed per-request). Not against a single "public JWT secret" as originally described here: Supabase's current default is its "JWT Signing Keys" feature, an asymmetric key (ES256) verified against the project's public JWKS endpoint, with the legacy shared HS256 secret kept only as a fallback for a project that hasn't migrated. Confirmed against a real deployment of this project, whose active signing key is already ES256 -- see `backend/app/auth.py`'s `_decode_supabase_jwt` and CLAUDE.md's decisions log.
 6. On first login, if no `org_members` row exists for that `auth_user_id`, the backend creates one (either joining an org via invite, or creating a new org if this is a first-time signup)
 
 ### 2.3 Service role key handling

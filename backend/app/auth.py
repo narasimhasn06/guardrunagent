@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from uuid import UUID
 
 import jwt
 from fastapi import Header, HTTPException, status
+from jwt import PyJWKClient
 from pydantic import BaseModel
 
 from app.api_keys import hash_api_key
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.db import get_supabase
 
 
@@ -53,12 +55,51 @@ def verify_api_key(x_api_key: str | None = Header(default=None)) -> OrgAuth:
     return OrgAuth(org_id=result.data["id"])
 
 
+@lru_cache
+def _get_jwks_client(supabase_url: str) -> PyJWKClient:
+    # Cached per URL (there's only ever one per process) -- PyJWKClient
+    # itself caches the fetched key set in memory for its `lifespan`
+    # (default 300s), so this doesn't mean a network round-trip per
+    # request either.
+    jwks_url = f"{supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
+    return PyJWKClient(jwks_url)
+
+
+def _decode_supabase_jwt(token: str, settings: Settings) -> dict:
+    """Supabase now signs new/rotated projects' JWTs with an asymmetric
+    key (its "JWT Signing Keys" feature -- ES256 by default), verified
+    against the project's public JWKS endpoint, not the single shared
+    HS256 secret docs/03-low-level-design.md Section 2.2 originally
+    specified. Confirmed against this project's real deployment: its
+    active signing key is ECC (P-256)/ES256, and the old HS256 "Legacy
+    JWT Secret" was rotated out and no longer signs anything -- the
+    original HS256-only implementation could never verify a real session
+    token again.
+
+    Tries JWKS/asymmetric first (the current model); SUPABASE_JWT_SECRET
+    stays as a fallback for a project that hasn't migrated to JWT
+    Signing Keys, where no JWKS key matches the token's `kid` at all --
+    JWKS-only publishes public/asymmetric keys, never the shared secret,
+    so this fallback can never partially overlap with the JWKS path.
+    """
+    try:
+        jwks_client = _get_jwks_client(settings.supabase_url)
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+        return jwt.decode(token, signing_key.key, algorithms=["ES256", "RS256"], audience="authenticated")
+    except jwt.PyJWKClientError:
+        pass  # no `kid` header, or no matching key in the JWKS -- likely a legacy HS256 token
+
+    return jwt.decode(token, settings.supabase_jwt_secret, algorithms=["HS256"], audience="authenticated")
+
+
 def verify_jwt(authorization: str | None = Header(default=None)) -> UserAuth:
     """Human auth for dashboard -> backend requests.
 
-    Verifies the Supabase-issued JWT locally against SUPABASE_JWT_SECRET
-    (HS256, shared-secret verification) per docs/03-low-level-design.md
-    Section 2.2 — no round-trip call to Supabase needed.
+    Verifies the Supabase-issued JWT locally -- see _decode_supabase_jwt
+    for why this isn't just HS256-against-a-shared-secret anymore, per
+    docs/03-low-level-design.md Section 2.2's original description. No
+    round-trip call to Supabase's Auth API needed either way, only to its
+    (public, cacheable) JWKS endpoint when the JWKS path is used.
     """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
@@ -67,12 +108,7 @@ def verify_jwt(authorization: str | None = Header(default=None)) -> UserAuth:
     settings = get_settings()
 
     try:
-        payload = jwt.decode(
-            token,
-            settings.supabase_jwt_secret,
-            algorithms=["HS256"],
-            audience="authenticated",
-        )
+        payload = _decode_supabase_jwt(token, settings)
     except jwt.PyJWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
 

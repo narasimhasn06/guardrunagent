@@ -83,3 +83,18 @@ rationale lives in the referenced code's own comments.
   call the backend directly from the browser — they go through
   same-origin Next.js Route Handlers under `dashboard/app/api/**`, which
   forward the signed-in user's Supabase JWT server-side.
+- **JWT verification: Supabase's public JWKS (ES256), not a single
+  shared secret.** docs/03-low-level-design.md Section 2.2 originally
+  described verifying against one "public JWT secret" (HS256). Supabase
+  has since moved to "JWT Signing Keys" -- an asymmetric key, verified
+  against the project's `/auth/v1/.well-known/jwks.json` -- and this
+  project's real deployment already had its key rotated to ES256, which
+  broke login in staging until caught (a persistent 401 on every
+  authenticated dashboard request, no matter how carefully
+  `SUPABASE_JWT_SECRET` was re-copied, since that legacy secret no
+  longer signs anything). `app/auth.py`'s `verify_jwt` now tries the
+  JWKS/ES256 path first and falls back to the legacy HS256 secret only
+  when no matching key is found (a project that hasn't migrated) --
+  never partially overlapping, since JWKS only ever publishes
+  asymmetric keys. Needed a new dependency, `cryptography` (PyJWT's
+  ES256/RS256 support requires it).
