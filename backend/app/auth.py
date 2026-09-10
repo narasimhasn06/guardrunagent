@@ -111,3 +111,37 @@ def verify_jwt(authorization: str | None = Header(default=None)) -> UserAuth:
         email=member.data.get("email") or payload.get("email") or "",
         role=member.data["role"],
     )
+
+
+class RulesAuth(BaseModel):
+    """Resolved org_id from either credential — see verify_api_key_or_jwt."""
+
+    org_id: UUID
+    is_machine: bool
+
+
+def verify_api_key_or_jwt(
+    x_api_key: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> RulesAuth:
+    """Dual-mode auth for GET /rules, which two different docs assign to
+    two different audiences at the *same* path: the SDK fetches its local
+    rule cache via API key (docs/03-low-level-design.md Section 3.2), and
+    the dashboard Rules page reads via Supabase JWT (Section 6: "GET/POST
+    /rules"). FastAPI matches the first route registered for a given
+    path+method and would silently never reach a second one — rather than
+    let one of these two documented consumers shadow the other, this
+    dispatches by whichever credential is present. Flagged as a
+    non-obvious design choice; splitting onto distinct paths later is a
+    reasonable alternative if this gets more complex.
+    """
+    if x_api_key:
+        org_auth = verify_api_key(x_api_key=x_api_key)
+        return RulesAuth(org_id=org_auth.org_id, is_machine=True)
+    if authorization:
+        user_auth = verify_jwt(authorization=authorization)
+        return RulesAuth(org_id=user_auth.org_id, is_machine=False)
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Missing credentials (X-API-Key or Authorization bearer token)",
+    )

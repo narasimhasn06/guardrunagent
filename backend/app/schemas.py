@@ -87,20 +87,20 @@ class GuardrailCheckOut(BaseModel):
     rule_name: str | None = None
 
 
-# ---- GET /rules ---------------------------------------------------------
-# docs/03-low-level-design.md Section 3.2 describes the SDK fetching
-# "active guardrail rules for the org (GET /rules, authenticated via API
-# key)" to build its local rule cache -- but the endpoint itself was never
-# specified (no request/response shape in Section 4's API design, which
-# only covers /events, /guardrail-check, /sessions/:id, /cost-summary).
+# ---- GET/POST /rules -----------------------------------------------------
+# GET /rules serves two documented consumers at the same path: the SDK's
+# local rule cache (docs/03-low-level-design.md Section 3.2, API-key
+# auth) and the dashboard Rules page (Section 6: "GET/POST /rules", JWT
+# auth) -- see app.auth.verify_api_key_or_jwt for how that's resolved.
+# Both get the same shape, unfiltered by `enabled`: the SDK's own local
+# matcher (sdk/src/matcher.ts) already skips disabled rules per-rule, so
+# there's no need to filter server-side for that consumer, and the
+# dashboard's "Enabled toggle" UI (docs/04-ui-ux-design.md Section 3.5)
+# needs to see disabled rules to display and toggle them anyway.
 #
-# This implements GET /rules for that SDK consumer only: API-key
-# (machine) auth, scoped to the org's *enabled* rules (disabled ones are
-# irrelevant to the SDK's local pre-check and aren't worth serving to a
-# machine client). The dashboard's Rules page (Section 6: "GET/POST
-# /rules") is a separate, JWT-authenticated CRUD surface that hasn't been
-# built yet -- out of scope here, and probably a distinct set of routes
-# rather than overloading this one with dual auth.
+# POST /rules (create) and POST /rules/starter (one-click enable the
+# starter set) are dashboard-only, JWT auth -- no machine consumer creates
+# rules programmatically per any doc.
 
 
 class RuleOut(BaseModel):
@@ -110,10 +110,19 @@ class RuleOut(BaseModel):
     pattern_value: str
     action_on_match: Literal["block", "flag"]
     enabled: bool
+    created_at: datetime
 
 
 class RulesOut(BaseModel):
     rules: list[RuleOut]
+
+
+class RuleCreateIn(BaseModel):
+    name: str
+    pattern_type: Literal["command_regex", "path_prefix", "action_type"]
+    pattern_value: str
+    action_on_match: Literal["block", "flag"]
+    enabled: bool = True
 
 
 # ---- GET /cost-summary --------------------------------------------------
