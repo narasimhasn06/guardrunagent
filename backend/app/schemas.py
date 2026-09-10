@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -64,3 +64,43 @@ class SessionDetailOut(BaseModel):
     event_count: int
     limit: int
     offset: int
+
+
+# ---- POST /guardrail-check ---------------------------------------------
+# Request/response shapes per docs/03-low-level-design.md Section 4.2.
+
+
+class GuardrailCheckIn(BaseModel):
+    action_type: ActionType
+    action_summary: str | None = None
+
+
+class GuardrailCheckOut(BaseModel):
+    decision: Literal["allow", "block", "flag"]
+    rule_id: UUID | None = None
+    rule_name: str | None = None
+
+
+# ---- GET /cost-summary --------------------------------------------------
+# Response shape per docs/03-low-level-design.md Section 4.4. The LLD names
+# a single "date_range" query param without specifying its shape; this
+# implements it as explicit `start`/`end` params instead (see
+# app/routers/cost_summary.py) -- a judgment call, flagged for review.
+
+GroupBy = Literal["day", "project", "agent"]
+
+
+class CostSummaryRow(BaseModel):
+    group_key: str
+    total_cost_usd: Decimal
+    total_tokens: int
+    event_count: int
+
+
+class CostSummaryOut(BaseModel):
+    group_by: GroupBy
+    start: datetime
+    end: datetime
+    rows: list[CostSummaryRow]
+    total_cost_usd: Decimal
+    total_tokens: int
