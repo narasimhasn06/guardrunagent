@@ -98,3 +98,15 @@ rationale lives in the referenced code's own comments.
   never partially overlapping, since JWKS only ever publishes
   asymmetric keys. Needed a new dependency, `cryptography` (PyJWT's
   ES256/RS256 support requires it).
+- **`SUPABASE_JWT_SECRET` is optional, not required.** Following directly
+  from the JWKS decision above: this value is now only a fallback for
+  projects that haven't migrated to JWT Signing Keys. It was still a
+  required (non-`Optional`) field on `Settings`, though, so unsetting it
+  on a JWKS-only deployment crashed `Settings()` itself -- an unhandled
+  `pydantic.ValidationError` on every authenticated request, surfacing
+  as a 500 from `/dashboard-summary` with no useful traceback for the
+  actual cause. Caught live in staging. `app/config.py`'s
+  `supabase_jwt_secret` is now `str | None = None`; the HS256 fallback
+  in `app/auth.py`'s `_decode_supabase_jwt` raises a normal
+  `jwt.InvalidTokenError` (-> 401) when it's unset and JWKS didn't match,
+  instead of the field's absence taking down settings construction.
