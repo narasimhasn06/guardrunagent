@@ -95,14 +95,46 @@ def verify_jwt(authorization: str | None = Header(default=None)) -> UserAuth:
     )
 
     if not member.data:
-        # Per docs/03-low-level-design.md Section 2.2 step 6, a first-time
-        # login should trigger an org-join/creation flow. That flow's
-        # mechanics (invite tokens, org naming, etc.) aren't specified
-        # anywhere in the docs, so it isn't built yet — this fails clearly
-        # instead of crashing or silently granting access to no org.
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No organization membership found for this user",
+        # Per docs/03-low-level-design.md Section 2.2 step 6: "joining an
+        # org via invite, or creating a new org if this is a first-time
+        # signup." The invite half is now built (Settings > Team --
+        # app/routers/settings.py writes a pending org_invites row, keyed
+        # by email); consume it here on the invited person's first login.
+        # The new-org-signup half still isn't specified anywhere (no UI
+        # for naming/creating an org exists), so that case still fails
+        # clearly with 403 rather than guessing at unspecified behavior.
+        email = (payload.get("email") or "").lower()
+        invite = (
+            supabase.table("org_invites").select("id, org_id, role").eq("email", email).maybe_single().execute()
+            if email
+            else None
+        )
+        if not invite or not invite.data:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No organization membership found for this user",
+            )
+
+        created = (
+            supabase.table("org_members")
+            .insert(
+                {
+                    "org_id": invite.data["org_id"],
+                    "auth_user_id": auth_user_id,
+                    "email": email,
+                    "role": invite.data["role"],
+                }
+            )
+            .execute()
+        )
+        supabase.table("org_invites").delete().eq("id", invite.data["id"]).execute()
+        member_data = created.data[0]
+
+        return UserAuth(
+            auth_user_id=auth_user_id,
+            org_id=member_data["org_id"],
+            email=member_data["email"],
+            role=member_data["role"],
         )
 
     return UserAuth(

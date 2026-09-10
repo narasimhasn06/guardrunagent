@@ -365,3 +365,119 @@ export async function getCostBreakdown(
   }
   return response.json();
 }
+
+// ---- /settings ------------------------------------------------------------
+// docs/04-ui-ux-design.md Section 3.6. Mutations here (regenerate,
+// webhook save/test, invite/cancel/role) are called from Route Handlers
+// (app/api/settings/**) rather than Server Components -- same reasoning as
+// createRule/updateRule in the Rules section above: they run in response
+// to client-side interactions, which can't call authorizedFetch directly.
+
+export type TeamRole = "admin" | "member";
+
+export interface TeamMemberOut {
+  id: string;
+  email: string;
+  role: TeamRole;
+  created_at: string;
+}
+
+export interface PendingInviteOut {
+  id: string;
+  email: string;
+  role: TeamRole;
+  created_at: string;
+}
+
+export interface SettingsOut {
+  org_name: string;
+  has_api_key: boolean;
+  slack_webhook_configured: boolean;
+  slack_webhook_url: string | null;
+  team: TeamMemberOut[];
+  pending_invites: PendingInviteOut[];
+}
+
+export async function getSettings(): Promise<SettingsOut> {
+  const response = await authorizedFetch("/settings");
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to load settings (${response.status})`);
+  }
+  return response.json();
+}
+
+export interface ApiKeyRegenerateOut {
+  api_key: string;
+}
+
+export async function regenerateApiKey(): Promise<ApiKeyRegenerateOut> {
+  const response = await authorizedFetch("/settings/api-key/regenerate", { method: "POST" });
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to regenerate API key (${response.status})`);
+  }
+  return response.json();
+}
+
+export interface SlackWebhookOut {
+  slack_webhook_configured: boolean;
+  slack_webhook_url: string | null;
+}
+
+export async function updateSlackWebhook(webhookUrl: string | null): Promise<SlackWebhookOut> {
+  const response = await authorizedFetch("/settings/slack-webhook", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ webhook_url: webhookUrl }),
+  });
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to save Slack webhook (${response.status})`);
+  }
+  return response.json();
+}
+
+export interface SlackTestResult {
+  delivered: boolean;
+}
+
+export async function testSlackWebhook(): Promise<SlackTestResult> {
+  const response = await authorizedFetch("/settings/slack-webhook/test", { method: "POST" });
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to send test alert (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function inviteTeamMember(email: string, role: TeamRole): Promise<PendingInviteOut> {
+  const response = await authorizedFetch("/settings/team/invite", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, role }),
+  });
+  if (!response.ok) {
+    if (response.status === 409) {
+      const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+      throw new BackendError(409, body?.detail ?? "This email has already been invited or is already a member.");
+    }
+    throw new BackendError(response.status, `Failed to invite team member (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function cancelInvite(inviteId: string): Promise<void> {
+  const response = await authorizedFetch(`/settings/team/invites/${inviteId}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to cancel invite (${response.status})`);
+  }
+}
+
+export async function updateTeamMemberRole(memberId: string, role: TeamRole): Promise<TeamMemberOut> {
+  const response = await authorizedFetch(`/settings/team/${memberId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role }),
+  });
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to update team member role (${response.status})`);
+  }
+  return response.json();
+}

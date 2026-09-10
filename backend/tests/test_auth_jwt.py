@@ -113,9 +113,9 @@ def test_non_bearer_authorization_header_is_rejected():
     assert exc_info.value.status_code == 401
 
 
-def test_jwt_for_user_with_no_org_members_row_is_handled_gracefully():
+def test_jwt_for_user_with_no_org_members_row_or_invite_is_rejected():
     token = _make_token()
-    fake = _supabase_with_member(None)
+    fake = FakeSupabase({"org_members": None, "org_invites": None})
 
     with (
         patch("app.auth.get_settings", return_value=_settings()),
@@ -125,7 +125,45 @@ def test_jwt_for_user_with_no_org_members_row_is_handled_gracefully():
             verify_jwt(authorization=f"Bearer {token}")
 
     # Doesn't crash (no unhandled exception) and doesn't silently grant
-    # access -- fails clearly with 403 pending the org-join/creation flow
-    # docs/03-low-level-design.md Section 2.2 step 6 describes but doesn't
-    # fully specify.
+    # access -- fails clearly with 403. This is the still-unbuilt
+    # new-org-signup half of docs/03-low-level-design.md Section 2.2 step
+    # 6 ("creating a new org if this is a first-time signup"); the
+    # invite half is covered below.
     assert exc_info.value.status_code == 403
+
+
+def test_first_login_with_a_pending_invite_joins_that_org():
+    # docs/04-ui-ux-design.md Section 3.6: "Invited members ... are linked
+    # to the org on first login." No org_members row exists yet for this
+    # auth_user_id, but a pending org_invites row matches their email.
+    token = _make_token(email="new.hire@example.com")
+    new_member_row = {"org_id": ORG_ID, "role": "member", "email": "new.hire@example.com"}
+    fake = FakeSupabase(
+        {
+            "org_members": {"select": None, "insert": [new_member_row]},
+            "org_invites": {
+                "select": {"id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", "org_id": ORG_ID, "role": "member"},
+                "delete": None,
+            },
+        }
+    )
+
+    with (
+        patch("app.auth.get_settings", return_value=_settings()),
+        patch("app.auth.get_supabase", return_value=fake),
+    ):
+        result = verify_jwt(authorization=f"Bearer {token}")
+
+    assert result.org_id == UUID(ORG_ID)
+    assert result.role == "member"
+    assert result.email == "new.hire@example.com"
+
+    insert_calls = [c for c in fake.recorded_calls if c[0] == "insert" and c[1] == "org_members"]
+    assert insert_calls[0][2] == {
+        "org_id": ORG_ID,
+        "auth_user_id": AUTH_USER_ID,
+        "email": "new.hire@example.com",
+        "role": "member",
+    }
+    delete_calls = [c for c in fake.recorded_calls if c[0] == "delete" and c[1] == "org_invites"]
+    assert len(delete_calls) == 1  # the consumed invite is removed so it can't be reused

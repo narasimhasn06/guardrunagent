@@ -1,17 +1,18 @@
 """A minimal fake for the supabase-py chained query builder, used to unit-
 and endpoint-test the backend without a real Supabase project.
 
-Only supports the operations app/*.py actually calls: select/insert/update,
-eq/gte/lt/order/range/limit/maybe_single, execute(), and rpc(). Every
-insert/update/rpc call is recorded on FakeSupabase.recorded_calls so tests
-can assert on the payload sent to the database.
+Only supports the operations app/*.py actually calls:
+select/insert/update/delete, eq/gte/lt/order/range/limit/maybe_single,
+execute(), and rpc(). Every insert/update/delete/rpc call is recorded on
+FakeSupabase.recorded_calls so tests can assert on the payload sent to the
+database.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-_PER_OP_KEYS = {"select", "insert", "update"}
+_PER_OP_KEYS = {"select", "insert", "update", "delete"}
 _RESULT_KEYS = {"data", "count"}
 
 
@@ -62,6 +63,11 @@ class FakeQuery:
     def update(self, payload: Any) -> "FakeQuery":
         self._client.recorded_calls.append(("update", self._table_name, payload))
         self._active_op = "update"
+        return self
+
+    def delete(self) -> "FakeQuery":
+        self._client.recorded_calls.append(("delete", self._table_name, None))
+        self._active_op = "delete"
         return self
 
     def eq(self, *_args: object, **_kwargs: object) -> "FakeQuery":

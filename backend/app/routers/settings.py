@@ -1,0 +1,155 @@
+from __future__ import annotations
+
+import secrets
+from uuid import UUID
+
+import bcrypt
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from app.alerting import post_to_slack
+from app.auth import UserAuth, verify_jwt
+from app.db import get_supabase
+from app.schemas import (
+    ApiKeyRegenerateOut,
+    PendingInviteOut,
+    SettingsOut,
+    SlackTestResult,
+    SlackWebhookIn,
+    SlackWebhookOut,
+    TeamInviteIn,
+    TeamMemberOut,
+    TeamRoleUpdateIn,
+)
+
+router = APIRouter(prefix="/settings")
+
+
+@router.get("", response_model=SettingsOut)
+def get_settings_page(auth: UserAuth = Depends(verify_jwt)) -> SettingsOut:
+    supabase = get_supabase()
+    org_id = str(auth.org_id)
+
+    org_row = (
+        supabase.table("orgs").select("name, slack_webhook_url").eq("id", org_id).maybe_single().execute()
+    )
+    org = org_row.data or {}
+
+    team_result = (
+        supabase.table("org_members")
+        .select("id, email, role, created_at")
+        .eq("org_id", org_id)
+        .order("created_at")
+        .execute()
+    )
+    invites_result = (
+        supabase.table("org_invites")
+        .select("id, email, role, created_at")
+        .eq("org_id", org_id)
+        .order("created_at")
+        .execute()
+    )
+
+    return SettingsOut(
+        org_name=org.get("name", ""),
+        has_api_key=True,  # orgs.api_key_hash is NOT NULL -- every org always has one
+        slack_webhook_configured=bool(org.get("slack_webhook_url")),
+        slack_webhook_url=org.get("slack_webhook_url"),
+        team=[TeamMemberOut(**row) for row in team_result.data or []],
+        pending_invites=[PendingInviteOut(**row) for row in invites_result.data or []],
+    )
+
+
+@router.post("/api-key/regenerate", response_model=ApiKeyRegenerateOut)
+def regenerate_api_key(auth: UserAuth = Depends(verify_jwt)) -> ApiKeyRegenerateOut:
+    """docs/04-ui-ux-design.md Section 3.6: "regenerate button (with
+    confirmation -- regenerating breaks existing SDK installs)." The
+    confirmation itself is a dashboard-side UX concern (components/settings);
+    this endpoint just does the regeneration once called. Stored the same
+    way the original key was (bcrypt hash, per docs/03-low-level-design.md
+    Section 7) -- there's no way back to a plaintext key once this
+    response is gone, by design.
+    """
+    supabase = get_supabase()
+    new_key = f"grk_{secrets.token_urlsafe(32)}"
+    key_hash = bcrypt.hashpw(new_key.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+    supabase.table("orgs").update({"api_key_hash": key_hash}).eq("id", str(auth.org_id)).execute()
+
+    return ApiKeyRegenerateOut(api_key=new_key)
+
+
+@router.put("/slack-webhook", response_model=SlackWebhookOut)
+def update_slack_webhook(body: SlackWebhookIn, auth: UserAuth = Depends(verify_jwt)) -> SlackWebhookOut:
+    supabase = get_supabase()
+    supabase.table("orgs").update({"slack_webhook_url": body.webhook_url}).eq("id", str(auth.org_id)).execute()
+
+    return SlackWebhookOut(
+        slack_webhook_configured=bool(body.webhook_url),
+        slack_webhook_url=body.webhook_url,
+    )
+
+
+@router.post("/slack-webhook/test", response_model=SlackTestResult)
+def test_slack_webhook(auth: UserAuth = Depends(verify_jwt)) -> SlackTestResult:
+    supabase = get_supabase()
+    org_row = (
+        supabase.table("orgs").select("slack_webhook_url").eq("id", str(auth.org_id)).maybe_single().execute()
+    )
+    webhook_url = (org_row.data or {}).get("slack_webhook_url")
+    if not webhook_url:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No Slack webhook configured")
+
+    delivered = post_to_slack(webhook_url, ":wave: This is a test alert from GuardrunAgent.")
+    return SlackTestResult(delivered=delivered)
+
+
+@router.post("/team/invite", response_model=PendingInviteOut, status_code=201)
+def invite_team_member(body: TeamInviteIn, auth: UserAuth = Depends(verify_jwt)) -> PendingInviteOut:
+    """Creates a pending org_invites row -- consumed by app.auth.verify_jwt
+    on the invited person's first login (see the migration's comment for
+    why this table exists). Checked against org_members globally, not just
+    this org: org_members.auth_user_id is globally unique, i.e. this
+    schema has one org per user, so an email already belonging to any org
+    can't be re-invited.
+    """
+    supabase = get_supabase()
+    email = body.email.strip().lower()
+
+    existing_member = supabase.table("org_members").select("id").eq("email", email).maybe_single().execute()
+    if existing_member.data:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This email already belongs to a team")
+
+    existing_invite = supabase.table("org_invites").select("id").eq("email", email).maybe_single().execute()
+    if existing_invite.data:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This email has already been invited")
+
+    result = (
+        supabase.table("org_invites")
+        .insert({"org_id": str(auth.org_id), "email": email, "role": body.role})
+        .execute()
+    )
+    return PendingInviteOut(**result.data[0])
+
+
+@router.delete("/team/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)
+def cancel_invite(invite_id: UUID, auth: UserAuth = Depends(verify_jwt)) -> None:
+    supabase = get_supabase()
+    supabase.table("org_invites").delete().eq("id", str(invite_id)).eq("org_id", str(auth.org_id)).execute()
+
+
+@router.patch("/team/{member_id}", response_model=TeamMemberOut)
+def update_team_member_role(
+    member_id: UUID, body: TeamRoleUpdateIn, auth: UserAuth = Depends(verify_jwt)
+) -> TeamMemberOut:
+    supabase = get_supabase()
+    result = (
+        supabase.table("org_members")
+        .update({"role": body.role})
+        .eq("id", str(member_id))
+        .eq("org_id", str(auth.org_id))  # never let one org edit another's member
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team member not found")
+
+    return TeamMemberOut(**result.data[0])

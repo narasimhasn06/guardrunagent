@@ -5,6 +5,23 @@ import httpx
 from app.db import get_supabase
 
 
+def post_to_slack(webhook_url: str, text: str) -> bool:
+    """Posts a message to a Slack incoming webhook, retrying once on
+    failure (docs/03-low-level-design.md Section 5). Shared by the
+    guardrail alert path below and the Settings page's "send test alert"
+    button (app/routers/settings.py) -- both are "deliver one message to
+    one webhook URL," just triggered differently.
+    """
+    for _attempt in range(2):  # initial attempt + one retry
+        try:
+            response = httpx.post(webhook_url, json={"text": text}, timeout=5.0)
+            if response.status_code < 300:
+                return True
+        except httpx.HTTPError:
+            continue
+    return False
+
+
 def dispatch_guardrail_alert(
     *,
     activity_id: str,
@@ -34,15 +51,7 @@ def dispatch_guardrail_alert(
         # rather than send a broken one.
         text += f" — <{dashboard_url.rstrip('/')}/sessions/{session_id}|Session>"
 
-    sent = False
-    for _attempt in range(2):  # initial attempt + one retry, per Section 5
-        try:
-            response = httpx.post(slack_webhook_url, json={"text": text}, timeout=5.0)
-            if response.status_code < 300:
-                sent = True
-                break
-        except httpx.HTTPError:
-            continue
+    sent = post_to_slack(slack_webhook_url, text)
 
     supabase = get_supabase()
     supabase.table("guardrail_activity").update({"alert_sent": sent}).eq("id", activity_id).execute()

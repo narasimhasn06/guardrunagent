@@ -206,6 +206,67 @@ class GuardrailActivityOut(BaseModel):
     offset: int
 
 
+# ---- /settings -----------------------------------------------------------
+# Settings page per docs/04-ui-ux-design.md Section 3.6: API key
+# (masked display + regenerate), Slack integration (webhook paste + test
+# alert), Team (member list + invite-by-email + role toggle). Not in the
+# LLD's API design (Section 4) -- Section 6's route table just names the
+# page's two source tables (orgs, org_members); the concrete endpoint
+# shapes below are new. See app/routers/settings.py for why the API key
+# itself is never returned by GET (only orgs.api_key_hash exists --
+# there's no way to recover or partially reveal the original key from a
+# bcrypt hash, so "masked key" is a fixed placeholder, not a real prefix).
+
+
+class TeamMemberOut(BaseModel):
+    id: UUID
+    email: str
+    role: Literal["admin", "member"]
+    created_at: datetime
+
+
+class PendingInviteOut(BaseModel):
+    id: UUID
+    email: str
+    role: Literal["admin", "member"]
+    created_at: datetime
+
+
+class SettingsOut(BaseModel):
+    org_name: str
+    has_api_key: bool
+    slack_webhook_configured: bool
+    slack_webhook_url: str | None
+    team: list[TeamMemberOut]
+    pending_invites: list[PendingInviteOut]
+
+
+class ApiKeyRegenerateOut(BaseModel):
+    api_key: str  # plaintext -- returned exactly once, never persisted or retrievable again
+
+
+class SlackWebhookIn(BaseModel):
+    webhook_url: str | None  # null clears the integration
+
+
+class SlackWebhookOut(BaseModel):
+    slack_webhook_configured: bool
+    slack_webhook_url: str | None
+
+
+class SlackTestResult(BaseModel):
+    delivered: bool
+
+
+class TeamInviteIn(BaseModel):
+    email: str
+    role: Literal["admin", "member"] = "member"
+
+
+class TeamRoleUpdateIn(BaseModel):
+    role: Literal["admin", "member"]
+
+
 # ---- GET /cost-summary --------------------------------------------------
 # Response shape per docs/03-low-level-design.md Section 4.4. The LLD names
 # a single "date_range" query param without specifying its shape; this

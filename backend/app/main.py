@@ -8,6 +8,7 @@ from app.routers import (
     guardrail_check,
     rules,
     sessions,
+    settings,
 )
 
 app = FastAPI(title="GuardrunAgent Backend")
@@ -19,6 +20,7 @@ app.include_router(sessions.router)
 app.include_router(cost_summary.router)
 app.include_router(dashboard_summary.router)
 app.include_router(guardrail_activity.router)
+app.include_router(settings.router)
 
 
 @app.get("/health")
