@@ -1,0 +1,5 @@
+{
+  "name": "guardrunagent",
+  "description": "AI-agent observability, cost tracking, and guardrails for Claude Code sessions",
+  "version": "0.1.0"
+}
