@@ -774,6 +774,10 @@ input:focus {
   gap: 8px;
 }
 
+.setup-checklist-code-row + .setup-checklist-code-row {
+  margin-top: 6px;
+}
+
 .setup-checklist-code {
   background: var(--color-bg);
   border: 1px solid var(--color-border);

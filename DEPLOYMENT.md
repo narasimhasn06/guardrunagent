@@ -32,20 +32,43 @@ its own Supabase project.
 - **CI**: `.github/workflows/ci.yml` runs the backend/dashboard/SDK test
   suites on every PR. It does not deploy anything -- see "How deploys
   actually happen" below.
-- **Supabase**: the existing project (created earlier in this project,
-  all migrations applied) is designated **staging**. A second project is
-  needed for production -- see "Before the first deploy" below.
+- **Supabase**: the existing project (created earlier in this project) is
+  designated **staging**. A second project is needed for production --
+  see "Before the first deploy" below. **Don't trust "all migrations
+  applied" on faith for any project, including this one**: staging was
+  believed fully migrated but was actually missing 3 of the 12 files
+  (`...0007`, `...0008`, `...0009` -- the `cost_summary`, `list_sessions`,
+  and `cost_breakdown_by_day` functions) and one column
+  (`...0010`'s `guardrail_activity.session_id`), discovered only when
+  `/dashboard-summary` 500'd in production with `PGRST202: Could not find
+  the function public.cost_summary(...)`. Verify with the two queries in
+  "Before the first deploy" step 1 before believing a project is current.
 
 ## Before the first deploy
 
 1. **Create a second Supabase project.** Right now there's one Supabase
-   project with every migration in `supabase/migrations/` applied to it.
-   Decide which of {existing project, a newly-created one} is `staging`
-   and which is `production`, and run every migration in
+   project intended to have every migration in `supabase/migrations/`
+   applied to it. Decide which of {existing project, a newly-created one}
+   is `staging` and which is `production`, and run every migration in
    `supabase/migrations/` against whichever one is new, in order, the
-   same way they were applied to the first (Supabase SQL Editor, RLS left
-   off -- see the comments in each migration file and this project's own
-   history for why).
+   same way they should have been applied to the first (Supabase SQL
+   Editor, RLS left off -- see the comments in each migration file and
+   this project's own history for why). Before trusting either project is
+   actually current, verify with:
+   ```sql
+   select table_name from information_schema.tables where table_schema = 'public' order by table_name;
+   select routine_name from information_schema.routines where routine_schema = 'public' order by routine_name;
+   ```
+   Cross-check the result against `supabase/migrations/`'s file list --
+   table-creating and function-creating migrations show up directly;
+   column-adding migrations (e.g. `...0010`) need a third check:
+   ```sql
+   select column_name from information_schema.columns where table_name = '<table>';
+   ```
+   `create table`/`alter table add column` migrations aren't safely
+   re-runnable (they error if already applied) -- only run the ones a
+   check above shows are actually missing. The `create or replace
+   function` ones are always safe to re-run.
 2. **Confirm Auth is configured the same way on both projects**: email/
    password + Google OAuth enabled, "Confirm email" on (for safe account
    auto-linking by email, per docs/03-low-level-design.md's auth note).

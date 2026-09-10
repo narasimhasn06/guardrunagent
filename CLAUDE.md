@@ -131,3 +131,63 @@ rationale lives in the referenced code's own comments.
   `tests/fakes.py` now also returns `None` for a `.maybe_single()` query
   with no matching row, matching the real client -- so this class of bug
   fails a test locally instead of only surfacing in production.
+- **Staging's Supabase project was missing 3 function migrations and 1
+  column migration, despite DEPLOYMENT.md claiming "all migrations
+  applied."** Caught live as a third distinct `/dashboard-summary`
+  failure (after the two bugs above were both fixed): a real
+  `postgrest.exceptions.APIError` --
+  `PGRST202: Could not find the function public.cost_summary(...)`.
+  `...0007_create_cost_summary_fn.sql`, `...0008_create_list_sessions_fn.sql`,
+  `...0009_create_cost_breakdown_by_day_fn.sql`, and
+  `...0010_add_session_id_to_guardrail_activity.sql` had never actually
+  been run against this project, though `...0000` through `...0006` and
+  `...0011` had. Root cause unclear (a stated assumption never verified,
+  or some migrations skipped/failed silently when run manually one-by-one
+  via the Supabase SQL Editor) -- not investigated further since the fix
+  (run the missing ones) was immediate either way. `DEPLOYMENT.md` no
+  longer states migration status as a bare claim; it now gives the
+  `information_schema` queries to verify it directly before trusting any
+  project, staging included.
+- **No self-serve "create your first org" flow exists.** A real signup
+  (not an invite) hits `app/auth.py`'s `verify_jwt` finding no
+  `org_members` row and no matching `org_invites` row, and 403s with "No
+  organization membership found for this user" -- by design, per the
+  comment there, since docs/03-low-level-design.md Section 2.2 step 6
+  names "creating a new org if this is a first-time signup" but no UI or
+  endpoint for it was ever specified. Hit live in staging on the first
+  real (non-invited) signup. Current workaround, staging/testing only:
+  manually insert an `orgs` row (any unique placeholder `api_key_hash`)
+  and a matching `org_members` row (role `'admin'`) via the Supabase SQL
+  Editor, using the new user's `auth.users` UID. Needs a real product
+  decision before real users sign up -- not built here since it's a
+  UI/UX and product-scope question, not a bug.
+- **SDK distribution: a Claude Code plugin marketplace (`.claude-plugin/marketplace.json`
+  at the repo root), not `npm install`.** The dashboard's onboarding card
+  and docs/07-user-manual.md Section 3 both told real users to run `npm
+  install @guardrunagent/sdk` -- caught live in staging as an `npm error
+  404` (the package had never been published, since `sdk/package.json`
+  was `private: true`). Fixing publishing alone would still have been
+  wrong: Claude Code never scans `node_modules` for plugins, so even a
+  successfully `npm install`ed package would sit inert -- its
+  `hooks/hooks.json` never registered and `${CLAUDE_PLUGIN_ROOT}` never
+  set, since those only happen through Claude Code's own plugin-loading
+  paths (`/plugin marketplace add` + `/plugin install`, `--plugin-dir`,
+  or the skills directory). Real fix: `sdk/package.json` un-privated with
+  `files: ["dist", "hooks", ".claude-plugin"]` (the published npm package
+  *is* the plugin root, so `hooks/hooks.json` and
+  `.claude-plugin/plugin.json` have to ship alongside `dist/`, not just
+  `dist/` alone) and `prepublishOnly: "npm run build"` (dist/ is
+  gitignored, built on demand); a new `.claude-plugin/marketplace.json`
+  at the repo root with one npm-sourced plugin entry; onboarding
+  (`components/home/setup-checklist.tsx`) and
+  docs/07-user-manual.md Section 3 both corrected to the real two-command
+  install (`/plugin marketplace add narasimhasn06/guardrunagent` then
+  `/plugin install guardrunagent@guardrunagent`) and the real
+  config-via-env-var-or-`~/.guardrunagent/config.json` story (no
+  `initGuardrunAgent()` call ever existed -- see the "one-shot processes"
+  decision above). Actually publishing `@guardrunagent/sdk` to npm still
+  needs a human to run `npm login`/`npm publish` themselves (this session
+  has no npm credentials) -- also requires an npm Organization named
+  `guardrunagent` to exist first, since a scoped package publish only
+  succeeds automatically under a scope matching the publisher's own npm
+  username.
