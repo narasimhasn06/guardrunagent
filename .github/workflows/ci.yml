@@ -48,7 +48,14 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # dashboard/package.json's jsdom/vitest/undici versions declare
+          # engines.node requiring >=22 (^22.22.2 || ^24.15.0 || >=26.0.0)
+          # -- Node 20 crashes every vitest worker before any test runs
+          # ("TypeError: webidl.util.markAsUncloneable is not a
+          # function", undici's CacheStorage module failing to load under
+          # jsdom). The sdk job below stays on 20; its own dependencies
+          # don't have this constraint.
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: dashboard/package-lock.json
 
