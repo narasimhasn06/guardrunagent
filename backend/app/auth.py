@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
-import bcrypt
 import jwt
 from fastapi import Header, HTTPException, status
 from pydantic import BaseModel
 
+from app.api_keys import hash_api_key
 from app.config import get_settings
 from app.db import get_supabase
 
@@ -33,29 +33,24 @@ def verify_api_key(x_api_key: str | None = Header(default=None)) -> OrgAuth:
     to keep it visually distinct from the `Authorization: Bearer` scheme
     used for human Supabase JWTs on the dashboard-facing endpoints.
 
-    Per docs/03-low-level-design.md Section 7, API keys are stored hashed
-    with bcrypt, never in plaintext. bcrypt hashes are salted, so they can't
-    be looked up by equality in SQL — the supplied key is checked against
-    each org's stored hash instead. This is the same "simple loop, no
-    engine needed at this scale" tradeoff the LLD makes explicitly for
-    guardrail rule matching (Section 4.2); fine for a pilot-scale org
-    count, not meant to scale indefinitely.
+    Per docs/03-low-level-design.md Section 7, API keys are stored hashed,
+    never in plaintext -- hashed with HMAC-SHA256 rather than the section's
+    suggested bcrypt/argon2, see app/api_keys.py for why. That hash is
+    deterministic, so the presented key can be looked up by a single
+    equality query instead of the hash-and-loop-over-every-org approach
+    bcrypt's salted output would force.
     """
     if not x_api_key:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing API key")
 
     supabase = get_supabase()
-    result = supabase.table("orgs").select("id, api_key_hash").execute()
-    key_bytes = x_api_key.encode("utf-8")
+    key_hash = hash_api_key(x_api_key)
+    result = supabase.table("orgs").select("id").eq("api_key_hash", key_hash).maybe_single().execute()
 
-    for row in result.data or []:
-        try:
-            if bcrypt.checkpw(key_bytes, row["api_key_hash"].encode("utf-8")):
-                return OrgAuth(org_id=row["id"])
-        except ValueError:
-            continue  # malformed/foreign hash format, skip
+    if not result.data:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
 
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
+    return OrgAuth(org_id=result.data["id"])
 
 
 def verify_jwt(authorization: str | None = Header(default=None)) -> UserAuth:

@@ -3,10 +3,10 @@ from __future__ import annotations
 import secrets
 from uuid import UUID
 
-import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.alerting import post_to_slack
+from app.api_keys import hash_api_key
 from app.auth import UserAuth, verify_jwt
 from app.db import get_supabase
 from app.schemas import (
@@ -65,13 +65,12 @@ def regenerate_api_key(auth: UserAuth = Depends(verify_jwt)) -> ApiKeyRegenerate
     confirmation -- regenerating breaks existing SDK installs)." The
     confirmation itself is a dashboard-side UX concern (components/settings);
     this endpoint just does the regeneration once called. Stored the same
-    way the original key was (bcrypt hash, per docs/03-low-level-design.md
-    Section 7) -- there's no way back to a plaintext key once this
-    response is gone, by design.
+    way the original key was (HMAC-SHA256, see app/api_keys.py) -- there's
+    no way back to a plaintext key once this response is gone, by design.
     """
     supabase = get_supabase()
     new_key = f"grk_{secrets.token_urlsafe(32)}"
-    key_hash = bcrypt.hashpw(new_key.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    key_hash = hash_api_key(new_key)
 
     supabase.table("orgs").update({"api_key_hash": key_hash}).eq("id", str(auth.org_id)).execute()
 

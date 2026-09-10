@@ -7,15 +7,26 @@ LLD's API design -- see the comment in app/schemas.py).
 
 from __future__ import annotations
 
-import bcrypt
 from unittest.mock import patch
 from uuid import UUID
 
+from app.api_keys import hash_api_key
 from app.auth import UserAuth, verify_jwt
+from app.config import Settings
 from app.main import app
 from tests.fakes import FakeSupabase
 
 ORG_ID = "11111111-1111-1111-1111-111111111111"
+API_KEY_PEPPER = "test-pepper-not-a-real-secret"
+
+
+def _settings() -> Settings:
+    return Settings(
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="dummy-service-role-key",
+        supabase_jwt_secret="dummy-jwt-secret",
+        api_key_pepper=API_KEY_PEPPER,
+    )
 
 MEMBER_ROW = {
     "id": "33333333-3333-3333-3333-333333333333",
@@ -91,7 +102,10 @@ class TestRegenerateApiKey:
         _override_jwt_auth()
         fake = FakeSupabase()
 
-        with patch("app.routers.settings.get_supabase", return_value=fake):
+        with (
+            patch("app.routers.settings.get_supabase", return_value=fake),
+            patch("app.api_keys.get_settings", return_value=_settings()),
+        ):
             response = client.post("/settings/api-key/regenerate")
 
         assert response.status_code == 200
@@ -102,13 +116,17 @@ class TestRegenerateApiKey:
         assert len(update_calls) == 1
         stored_hash = update_calls[0][2]["api_key_hash"]
         assert stored_hash != new_key  # never stores the plaintext
-        assert bcrypt.checkpw(new_key.encode("utf-8"), stored_hash.encode("utf-8"))
+        with patch("app.api_keys.get_settings", return_value=_settings()):
+            assert hash_api_key(new_key) == stored_hash
 
     def test_two_calls_produce_different_keys(self, client):
         _override_jwt_auth()
         fake = FakeSupabase()
 
-        with patch("app.routers.settings.get_supabase", return_value=fake):
+        with (
+            patch("app.routers.settings.get_supabase", return_value=fake),
+            patch("app.api_keys.get_settings", return_value=_settings()),
+        ):
             first = client.post("/settings/api-key/regenerate").json()["api_key"]
             second = client.post("/settings/api-key/regenerate").json()["api_key"]
 

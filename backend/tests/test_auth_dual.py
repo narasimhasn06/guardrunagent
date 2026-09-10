@@ -12,7 +12,6 @@ from __future__ import annotations
 from unittest.mock import patch
 from uuid import UUID
 
-import bcrypt
 import jwt
 import pytest
 from fastapi import HTTPException
@@ -24,8 +23,8 @@ from tests.fakes import FakeSupabase
 ORG_ID = "11111111-1111-1111-1111-111111111111"
 AUTH_USER_ID = "33333333-3333-3333-3333-333333333333"
 PLAINTEXT_KEY = "grn_live_testkey123"
-HASHED_KEY = bcrypt.hashpw(PLAINTEXT_KEY.encode(), bcrypt.gensalt()).decode()
 JWT_SECRET = "test-jwt-secret-that-is-long-enough-for-hs256"
+API_KEY_PEPPER = "test-pepper-not-a-real-secret"
 
 
 def _settings() -> Settings:
@@ -33,6 +32,7 @@ def _settings() -> Settings:
         supabase_url="https://example.supabase.co",
         supabase_service_role_key="dummy-service-role-key",
         supabase_jwt_secret=JWT_SECRET,
+        api_key_pepper=API_KEY_PEPPER,
     )
 
 
@@ -48,9 +48,12 @@ def _make_token() -> str:
 
 
 def test_api_key_credential_resolves_as_machine():
-    fake = FakeSupabase(table_data={"orgs": [{"id": ORG_ID, "api_key_hash": HASHED_KEY}]})
+    fake = FakeSupabase(table_data={"orgs": {"id": ORG_ID}})
 
-    with patch("app.auth.get_supabase", return_value=fake):
+    with (
+        patch("app.api_keys.get_settings", return_value=_settings()),
+        patch("app.auth.get_supabase", return_value=fake),
+    ):
         result = verify_api_key_or_jwt(x_api_key=PLAINTEXT_KEY, authorization=None)
 
     assert result.org_id == UUID(ORG_ID)
@@ -77,18 +80,24 @@ def test_neither_credential_is_rejected():
 
 
 def test_api_key_takes_precedence_when_both_are_present():
-    fake = FakeSupabase(table_data={"orgs": [{"id": ORG_ID, "api_key_hash": HASHED_KEY}]})
+    fake = FakeSupabase(table_data={"orgs": {"id": ORG_ID}})
 
-    with patch("app.auth.get_supabase", return_value=fake):
+    with (
+        patch("app.api_keys.get_settings", return_value=_settings()),
+        patch("app.auth.get_supabase", return_value=fake),
+    ):
         result = verify_api_key_or_jwt(x_api_key=PLAINTEXT_KEY, authorization="Bearer some-jwt-too")
 
     assert result.is_machine is True
 
 
 def test_invalid_api_key_is_rejected_even_with_no_authorization_fallback():
-    fake = FakeSupabase(table_data={"orgs": []})
+    fake = FakeSupabase(table_data={"orgs": None})
 
-    with patch("app.auth.get_supabase", return_value=fake):
+    with (
+        patch("app.api_keys.get_settings", return_value=_settings()),
+        patch("app.auth.get_supabase", return_value=fake),
+    ):
         with pytest.raises(HTTPException) as exc_info:
             verify_api_key_or_jwt(x_api_key="wrong-key", authorization=None)
 

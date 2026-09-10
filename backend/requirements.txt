@@ -3,6 +3,5 @@ uvicorn[standard]
 pydantic
 pydantic-settings
 supabase
-bcrypt
 pyjwt
 httpx

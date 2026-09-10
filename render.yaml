@@ -42,6 +42,8 @@ services:
         sync: false
       - key: SUPABASE_JWT_SECRET
         sync: false
+      - key: API_KEY_PEPPER
+        sync: false
       - key: DASHBOARD_URL
         sync: false # the staging dashboard service's URL, from below
 
@@ -64,6 +66,8 @@ services:
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: API_KEY_PEPPER
         sync: false
       - key: DASHBOARD_URL
         sync: false

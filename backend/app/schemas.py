@@ -215,7 +215,7 @@ class GuardrailActivityOut(BaseModel):
 # shapes below are new. See app/routers/settings.py for why the API key
 # itself is never returned by GET (only orgs.api_key_hash exists --
 # there's no way to recover or partially reveal the original key from a
-# bcrypt hash, so "masked key" is a fixed placeholder, not a real prefix).
+# hash, so "masked key" is a fixed placeholder, not a real prefix).
 
 
 class TeamMemberOut(BaseModel):

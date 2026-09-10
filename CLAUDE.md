@@ -55,9 +55,19 @@ rationale lives in the referenced code's own comments.
   table (holds a pending Team invite until the invited person's first
   login — see `supabase/migrations/20260910100011_*` and
   `app/routers/settings.py`).
-- **API key display in Settings**: never reconstructable (only a bcrypt
-  hash is stored) — shown as a fixed masked placeholder, with the real
-  value surfaced exactly once, right after regeneration.
+- **API key display in Settings**: never reconstructable (only a hash is
+  stored) — shown as a fixed masked placeholder, with the real value
+  surfaced exactly once, right after regeneration.
+- **API key hashing: HMAC-SHA256 + pepper, not bcrypt/argon2** (a
+  deviation from docs/03-low-level-design.md Section 7's suggested
+  examples, now corrected there too). Measured bcrypt at ~270ms/check —
+  alone over the guardrail-check path's 200ms p99 budget, and
+  `verify_api_key` paid that once per *org* in a loop. API keys are
+  high-entropy random tokens, not human passwords, so bcrypt's slowness
+  bought nothing. See `backend/app/api_keys.py`. Required a new
+  `API_KEY_PEPPER` config value (server-only secret) and is a breaking
+  change for any already-issued API key — regenerate after deploying
+  this.
 - **Deployment target: Render, not Railway**, for now. Railway's
   config-as-code format (`railway.json`/`railway.toml`) is being
   deprecated (dead 2026-12-01) in favor of a new IaC system this session
