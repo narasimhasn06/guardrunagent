@@ -89,6 +89,13 @@ def _decode_supabase_jwt(token: str, settings: Settings) -> dict:
     except jwt.PyJWKClientError:
         pass  # no `kid` header, or no matching key in the JWKS -- likely a legacy HS256 token
 
+    if not settings.supabase_jwt_secret:
+        # No JWKS match and no legacy secret configured -- there's no way
+        # left to verify this token. Raise the same family of exception
+        # verify_jwt already catches (jwt.PyJWTError) so this fails as a
+        # normal 401, not an unhandled 500.
+        raise jwt.InvalidTokenError("No matching JWKS key and no legacy SUPABASE_JWT_SECRET configured")
+
     return jwt.decode(token, settings.supabase_jwt_secret, algorithms=["HS256"], audience="authenticated")
 
 

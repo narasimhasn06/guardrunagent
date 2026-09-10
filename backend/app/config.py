@@ -15,7 +15,17 @@ class Settings(BaseSettings):
 
     supabase_url: str
     supabase_service_role_key: str  # server-only, bypasses RLS
-    supabase_jwt_secret: str  # verifies dashboard-user Supabase JWTs
+
+    # Verifies dashboard-user Supabase JWTs signed with the legacy shared
+    # HS256 secret. Optional: the primary verification path is Supabase's
+    # public JWKS (see app/auth.py's _decode_supabase_jwt), used for any
+    # project on the current "JWT Signing Keys" model (asymmetric, e.g.
+    # ES256) -- this only matters as a fallback for a project that hasn't
+    # migrated. Making this required broke every authenticated request
+    # with an unhandled 500 (Settings() itself failing to construct) the
+    # moment it was unset in a JWKS-only deployment, even though nothing
+    # actually needed it -- see CLAUDE.md's decisions log.
+    supabase_jwt_secret: str | None = None
 
     # Server-only secret keying the HMAC-SHA256 hash `orgs.api_key_hash`
     # stores (see app/api_keys.py). Never logged, never sent to any

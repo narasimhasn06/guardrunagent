@@ -140,6 +140,27 @@ def test_es256_jwt_with_wrong_key_is_rejected():
     assert exc_info.value.status_code == 401
 
 
+def test_missing_legacy_secret_fails_closed_not_500():
+    # Regression: supabase_jwt_secret is optional (see app/config.py) --
+    # a project running purely on JWKS/ES256 may not set it at all. A
+    # token that JWKS can't verify either (no matching `kid`, e.g. an
+    # HS256-signed token like the ones _make_token produces) must still
+    # fail as an ordinary 401, not blow up with an unhandled exception
+    # because there's no secret left to fall back to.
+    token = _make_token()
+    settings = Settings(
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="dummy-service-role-key",
+        supabase_jwt_secret=None,
+    )
+
+    with patch("app.auth.get_settings", return_value=settings):
+        with pytest.raises(HTTPException) as exc_info:
+            verify_jwt(authorization=f"Bearer {token}")
+
+    assert exc_info.value.status_code == 401
+
+
 def test_expired_jwt_is_rejected():
     token = _make_token(exp_delta=timedelta(seconds=-10))
 
