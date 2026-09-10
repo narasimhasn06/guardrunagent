@@ -254,3 +254,239 @@ input:focus {
   color: var(--color-text-muted);
   font-size: 14px;
 }
+
+/* ---- Session Replay (docs/04-ui-ux-design.md Section 3.3) ----------- */
+
+.session-replay {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.session-header {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.session-header-meta {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.session-header-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin: 0;
+}
+
+.session-header-stats dt {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  margin: 0 0 2px;
+}
+
+.session-header-stats dd {
+  margin: 0;
+  font-size: 14px;
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+.session-replay-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.event-timeline {
+  flex: 1;
+  min-width: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.event-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.event-card-flagged {
+  border-left-color: var(--color-blocked);
+}
+
+.event-card-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text);
+  text-align: left;
+}
+
+.event-card-header:hover {
+  background: var(--color-surface-raised);
+}
+
+.event-card-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.event-card-time,
+.event-card-cost {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.event-card-rule {
+  margin: 0;
+  padding: 0 14px 10px 14px;
+  font-size: 13px;
+  color: var(--color-blocked);
+}
+
+.event-card-detail {
+  padding: 0 14px 14px 14px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 10px;
+}
+
+.event-card-reasoning {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin: 0 0 10px;
+}
+
+.event-card-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.event-card-meta dt {
+  color: var(--color-text-muted);
+}
+
+.event-card-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.action-tag {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.action-tag-file-edit {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.status-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.status-badge-success {
+  background: color-mix(in srgb, var(--color-success) 18%, transparent);
+  color: var(--color-success);
+}
+
+.status-badge-blocked {
+  background: color-mix(in srgb, var(--color-blocked) 18%, transparent);
+  color: var(--color-blocked);
+}
+
+.status-badge-flagged {
+  background: color-mix(in srgb, var(--color-flagged) 18%, transparent);
+  color: var(--color-flagged);
+}
+
+.status-badge-failure {
+  background: color-mix(in srgb, var(--color-neutral) 25%, transparent);
+  color: var(--color-neutral);
+}
+
+.cost-panel {
+  flex-shrink: 0;
+  width: 200px;
+  position: sticky;
+  top: 32px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cost-panel-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+.cost-panel-row span:first-child {
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 720px) {
+  .session-replay-body {
+    flex-direction: column;
+  }
+
+  .cost-panel {
+    width: 100%;
+    position: static;
+  }
+
+  .event-card-summary {
+    white-space: normal;
+  }
+}
