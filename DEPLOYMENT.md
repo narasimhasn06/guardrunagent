@@ -90,6 +90,28 @@ its own Supabase project.
   reach staging; nothing stops a human from promoting a bad commit to
   production, since that step is manual by design.
 
+## Running the system tests against staging
+
+`dashboard/e2e/` has Playwright specs for the four scenarios in
+docs/06-test-plan.md Section 5. Each file has a small unconditional part
+(login screen behavior, route shapes) that runs against anything,
+including a plain local dev server, and a larger part gated behind
+`E2E_SEEDED_STAGING` that needs a real deployment with real data:
+
+```
+E2E_BASE_URL=https://guardrunagent-dashboard-staging.onrender.com \
+E2E_SEEDED_STAGING=1 \
+E2E_SEEDED_SESSION_ID=<a session with a blocked/flagged event> \
+npx playwright test
+```
+
+Setting `E2E_BASE_URL` also disables the config's automatic local
+`npm run dev` spawn (`playwright.config.ts`), since it assumes the target
+is already running. "Seeded" isn't automated here -- it means an org on
+that Supabase project already has starter rules, a session with a
+blocked event, and multi-project cost data in it, however that data got
+there (a real SDK run, or a seed script someone writes later).
+
 ## Environment variable reference
 
 | File | Service | Environment |
