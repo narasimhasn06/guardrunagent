@@ -1,0 +1,19 @@
+# Environment files (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Node (SDK / dashboard, once scaffolded)
+node_modules/
+.next/
+dist/
+
+# OS / editor
+.DS_Store
