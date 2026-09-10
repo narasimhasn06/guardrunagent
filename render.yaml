@@ -1,0 +1,114 @@
+# Render Blueprint -- deploys both services (backend, dashboard) x both
+# environments (staging, production) per docs/05-architecture-document.md
+# Section 5: "Backend and dashboard: two separate persistent services on
+# Railway/Render, each independently deployable" and "one Supabase project
+# per environment." See DEPLOYMENT.md for the apply/setup steps and the
+# equivalent Railway configuration.
+#
+# `plan: starter` (not `free`) on every service, deliberately: Render's
+# free tier spins a service down after 15 minutes idle and cold-starts on
+# the next request, which would blow the guardrail-check p99<200ms target
+# and directly contradicts Section 3's own reason for choosing
+# Railway/Render over serverless in the first place ("Persistent service
+# hosting ... needed for consistent low-latency").
+#
+# `region: oregon` is Render's default, used here as a placeholder --
+# Section 5 says region should be "chosen based on where pilot customers
+# are concentrated," which isn't decided yet. Change it before the first
+# real deploy.
+#
+# Values marked `sync: false` are secrets/URLs Render will prompt for
+# during Blueprint setup rather than storing here -- see the
+# *.env.*.example files for what each one is and where to find it.
+
+services:
+  - type: web
+    name: guardrunagent-backend-staging
+    runtime: python
+    rootDir: backend
+    plan: starter
+    region: oregon
+    branch: main
+    autoDeploy: true # staging auto-deploys on every merge to main
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.10
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: DASHBOARD_URL
+        sync: false # the staging dashboard service's URL, from below
+
+  - type: web
+    name: guardrunagent-backend-production
+    runtime: python
+    rootDir: backend
+    plan: starter
+    region: oregon
+    branch: main
+    autoDeploy: false # production is promoted manually, per Section 5
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.10
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: DASHBOARD_URL
+        sync: false
+
+  - type: web
+    name: guardrunagent-dashboard-staging
+    runtime: node
+    rootDir: dashboard
+    plan: starter
+    region: oregon
+    branch: main
+    autoDeploy: true
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start -- -p $PORT -H 0.0.0.0
+    # / redirects unauthenticated requests to /login (proxy.ts) -- using
+    # it as the health check would make an unauthenticated redirect look
+    # like a failure. /login always renders directly.
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: NEXT_PUBLIC_BACKEND_URL
+        sync: false # the staging backend service's URL, from above
+
+  - type: web
+    name: guardrunagent-dashboard-production
+    runtime: node
+    rootDir: dashboard
+    plan: starter
+    region: oregon
+    branch: main
+    autoDeploy: false
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start -- -p $PORT -H 0.0.0.0
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: NEXT_PUBLIC_BACKEND_URL
+        sync: false
