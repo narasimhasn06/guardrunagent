@@ -6,7 +6,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.auth import UserAuth, verify_jwt
-from app.db import get_supabase
+from app.db import get_supabase, maybe_single_result
 from app.schemas import DashboardSummaryOut, RecentActivityItem, SpendByDayRow
 
 router = APIRouter()
@@ -30,7 +30,7 @@ def get_dashboard_summary(
     supabase = get_supabase()
     org_id = str(auth.org_id)
 
-    org_result = supabase.table("orgs").select("name").eq("id", org_id).maybe_single().execute()
+    org_result = maybe_single_result(supabase.table("orgs").select("name").eq("id", org_id).maybe_single())
     org_name = (org_result.data or {}).get("name", "")
 
     sessions_result = (

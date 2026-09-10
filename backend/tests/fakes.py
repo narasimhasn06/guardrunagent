@@ -50,6 +50,7 @@ class FakeQuery:
         self._table_name = table_name
         self._entry = entry
         self._active_op: str | None = None
+        self._is_maybe_single = False
 
     def select(self, *_args: object, **_kwargs: object) -> "FakeQuery":
         self._active_op = "select"
@@ -89,9 +90,10 @@ class FakeQuery:
         return self
 
     def maybe_single(self) -> "FakeQuery":
+        self._is_maybe_single = True
         return self
 
-    def execute(self) -> FakeResult:
+    def execute(self) -> FakeResult | None:
         if isinstance(self._entry, dict) and self._entry and set(self._entry.keys()) <= _PER_OP_KEYS:
             raw = self._entry.get(self._active_op)
         else:
@@ -101,6 +103,15 @@ class FakeQuery:
             raw = self._client._next_sequence_value(self._table_name, self._active_op or "select", raw)
 
         data, count = _interpret(raw)
+
+        if self._is_maybe_single and data is None:
+            # Matches postgrest-py's real (2.x) behavior: `.maybe_single()`
+            # returns None outright, not a response with `.data = None`,
+            # when zero rows match. app/db.py's maybe_single_result exists
+            # specifically to normalize this -- every call site must go
+            # through it rather than `.maybe_single().execute()` directly.
+            return None
+
         return FakeResult(data, count)
 
 

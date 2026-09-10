@@ -110,3 +110,24 @@ rationale lives in the referenced code's own comments.
   in `app/auth.py`'s `_decode_supabase_jwt` raises a normal
   `jwt.InvalidTokenError` (-> 401) when it's unset and JWKS didn't match,
   instead of the field's absence taking down settings construction.
+- **`.maybe_single().execute()` can return `None` outright, not a
+  response object with `.data = None`.** Caught live in staging as a
+  second, different 500 from `/dashboard-summary` right after the fix
+  above: `app/auth.py`'s `verify_jwt` did `member.data` straight off a
+  `.maybe_single().execute()` call, assuming a response object either
+  way. postgrest-py 2.x (the version this project is actually on)
+  returns `None` itself when zero rows match -- confirmed by reading
+  `SyncMaybeSingleRequestBuilder.execute()` in the installed package.
+  `FakeSupabase` (the test double) didn't replicate this, so every
+  "not found" test case passed locally while the real client 500'd in
+  production the first time any of this backend's 8
+  `.maybe_single()` call sites (`app/auth.py` x3, `app/db.py`-adjacent
+  routers: `guardrail_check.py`, `sessions.py`, `events.py`,
+  `settings.py` x3, `dashboard_summary.py`) genuinely found no row.
+  Fixed at the root: `app/db.py`'s new `maybe_single_result(builder)`
+  wraps `.execute()` and normalizes a `None` return into an object with
+  `.data = None`, and every call site now goes through it instead of
+  calling `.maybe_single().execute()` directly. `FakeQuery.execute()` in
+  `tests/fakes.py` now also returns `None` for a `.maybe_single()` query
+  with no matching row, matching the real client -- so this class of bug
+  fails a test locally instead of only surfacing in production.
