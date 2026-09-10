@@ -87,6 +87,35 @@ class GuardrailCheckOut(BaseModel):
     rule_name: str | None = None
 
 
+# ---- GET /rules ---------------------------------------------------------
+# docs/03-low-level-design.md Section 3.2 describes the SDK fetching
+# "active guardrail rules for the org (GET /rules, authenticated via API
+# key)" to build its local rule cache -- but the endpoint itself was never
+# specified (no request/response shape in Section 4's API design, which
+# only covers /events, /guardrail-check, /sessions/:id, /cost-summary).
+#
+# This implements GET /rules for that SDK consumer only: API-key
+# (machine) auth, scoped to the org's *enabled* rules (disabled ones are
+# irrelevant to the SDK's local pre-check and aren't worth serving to a
+# machine client). The dashboard's Rules page (Section 6: "GET/POST
+# /rules") is a separate, JWT-authenticated CRUD surface that hasn't been
+# built yet -- out of scope here, and probably a distinct set of routes
+# rather than overloading this one with dual auth.
+
+
+class RuleOut(BaseModel):
+    id: UUID
+    name: str
+    pattern_type: Literal["command_regex", "path_prefix", "action_type"]
+    pattern_value: str
+    action_on_match: Literal["block", "flag"]
+    enabled: bool
+
+
+class RulesOut(BaseModel):
+    rules: list[RuleOut]
+
+
 # ---- GET /cost-summary --------------------------------------------------
 # Response shape per docs/03-low-level-design.md Section 4.4. The LLD names
 # a single "date_range" query param without specifying its shape; this
