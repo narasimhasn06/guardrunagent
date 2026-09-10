@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.alerting import post_to_slack
 from app.api_keys import hash_api_key
 from app.auth import UserAuth, verify_jwt
-from app.db import get_supabase
+from app.db import get_supabase, maybe_single_result
 from app.schemas import (
     ApiKeyRegenerateOut,
     PendingInviteOut,
@@ -29,8 +29,8 @@ def get_settings_page(auth: UserAuth = Depends(verify_jwt)) -> SettingsOut:
     supabase = get_supabase()
     org_id = str(auth.org_id)
 
-    org_row = (
-        supabase.table("orgs").select("name, slack_webhook_url").eq("id", org_id).maybe_single().execute()
+    org_row = maybe_single_result(
+        supabase.table("orgs").select("name, slack_webhook_url").eq("id", org_id).maybe_single()
     )
     org = org_row.data or {}
 
@@ -91,8 +91,8 @@ def update_slack_webhook(body: SlackWebhookIn, auth: UserAuth = Depends(verify_j
 @router.post("/slack-webhook/test", response_model=SlackTestResult)
 def test_slack_webhook(auth: UserAuth = Depends(verify_jwt)) -> SlackTestResult:
     supabase = get_supabase()
-    org_row = (
-        supabase.table("orgs").select("slack_webhook_url").eq("id", str(auth.org_id)).maybe_single().execute()
+    org_row = maybe_single_result(
+        supabase.table("orgs").select("slack_webhook_url").eq("id", str(auth.org_id)).maybe_single()
     )
     webhook_url = (org_row.data or {}).get("slack_webhook_url")
     if not webhook_url:
@@ -114,11 +114,11 @@ def invite_team_member(body: TeamInviteIn, auth: UserAuth = Depends(verify_jwt))
     supabase = get_supabase()
     email = body.email.strip().lower()
 
-    existing_member = supabase.table("org_members").select("id").eq("email", email).maybe_single().execute()
+    existing_member = maybe_single_result(supabase.table("org_members").select("id").eq("email", email).maybe_single())
     if existing_member.data:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This email already belongs to a team")
 
-    existing_invite = supabase.table("org_invites").select("id").eq("email", email).maybe_single().execute()
+    existing_invite = maybe_single_result(supabase.table("org_invites").select("id").eq("email", email).maybe_single())
     if existing_invite.data:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This email has already been invited")
 

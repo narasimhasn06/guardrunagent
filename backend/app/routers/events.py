@@ -6,7 +6,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, status
 
 from app.auth import OrgAuth, verify_api_key
-from app.db import get_supabase
+from app.db import get_supabase, maybe_single_result
 from app.schemas import EventsIn, EventsOut
 
 router = APIRouter()
@@ -16,13 +16,12 @@ router = APIRouter()
 def post_events(body: EventsIn, auth: OrgAuth = Depends(verify_api_key)) -> EventsOut:
     supabase = get_supabase()
 
-    existing = (
+    existing = maybe_single_result(
         supabase.table("sessions")
         .select("id")
         .eq("id", str(body.session_id))
         .eq("org_id", str(auth.org_id))
         .maybe_single()
-        .execute()
     )
     if not existing.data:
         # docs/03-low-level-design.md Section 4 documents no session-creation

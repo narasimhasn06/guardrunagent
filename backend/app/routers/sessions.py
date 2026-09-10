@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.auth import UserAuth, verify_jwt
-from app.db import get_supabase
+from app.db import get_supabase, maybe_single_result
 from app.models.sessions import SessionStatus
 from app.schemas import (
     AgentEventOut,
@@ -84,13 +84,8 @@ def get_session(
 ) -> SessionDetailOut:
     supabase = get_supabase()
 
-    session = (
-        supabase.table("sessions")
-        .select("*")
-        .eq("id", str(session_id))
-        .eq("org_id", str(auth.org_id))
-        .maybe_single()
-        .execute()
+    session = maybe_single_result(
+        supabase.table("sessions").select("*").eq("id", str(session_id)).eq("org_id", str(auth.org_id)).maybe_single()
     )
     if not session.data:
         # Same 404 whether the session doesn't exist or belongs to another

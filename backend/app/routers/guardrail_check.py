@@ -5,7 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from app.alerting import dispatch_guardrail_alert
 from app.auth import OrgAuth, verify_api_key
 from app.config import get_settings
-from app.db import get_supabase
+from app.db import get_supabase, maybe_single_result
 from app.guardrails import match_rule
 from app.schemas import GuardrailCheckIn, GuardrailCheckOut
 
@@ -63,12 +63,8 @@ def post_guardrail_check(
     )
     activity_id = activity.data[0]["id"]
 
-    org_row = (
-        supabase.table("orgs")
-        .select("slack_webhook_url")
-        .eq("id", str(auth.org_id))
-        .maybe_single()
-        .execute()
+    org_row = maybe_single_result(
+        supabase.table("orgs").select("slack_webhook_url").eq("id", str(auth.org_id)).maybe_single()
     )
     slack_webhook_url = (org_row.data or {}).get("slack_webhook_url")
 

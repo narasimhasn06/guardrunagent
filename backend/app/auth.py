@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from app.api_keys import hash_api_key
 from app.config import Settings, get_settings
-from app.db import get_supabase
+from app.db import get_supabase, maybe_single_result
 
 
 class OrgAuth(BaseModel):
@@ -47,7 +47,7 @@ def verify_api_key(x_api_key: str | None = Header(default=None)) -> OrgAuth:
 
     supabase = get_supabase()
     key_hash = hash_api_key(x_api_key)
-    result = supabase.table("orgs").select("id").eq("api_key_hash", key_hash).maybe_single().execute()
+    result = maybe_single_result(supabase.table("orgs").select("id").eq("api_key_hash", key_hash).maybe_single())
 
     if not result.data:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
@@ -124,12 +124,8 @@ def verify_jwt(authorization: str | None = Header(default=None)) -> UserAuth:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing subject claim")
 
     supabase = get_supabase()
-    member = (
-        supabase.table("org_members")
-        .select("org_id, role, email")
-        .eq("auth_user_id", auth_user_id)
-        .maybe_single()
-        .execute()
+    member = maybe_single_result(
+        supabase.table("org_members").select("org_id, role, email").eq("auth_user_id", auth_user_id).maybe_single()
     )
 
     if not member.data:
@@ -143,7 +139,7 @@ def verify_jwt(authorization: str | None = Header(default=None)) -> UserAuth:
         # clearly with 403 rather than guessing at unspecified behavior.
         email = (payload.get("email") or "").lower()
         invite = (
-            supabase.table("org_invites").select("id, org_id, role").eq("email", email).maybe_single().execute()
+            maybe_single_result(supabase.table("org_invites").select("id, org_id, role").eq("email", email).maybe_single())
             if email
             else None
         )
