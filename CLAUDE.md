@@ -161,3 +161,33 @@ rationale lives in the referenced code's own comments.
   Editor, using the new user's `auth.users` UID. Needs a real product
   decision before real users sign up -- not built here since it's a
   UI/UX and product-scope question, not a bug.
+- **SDK distribution: a Claude Code plugin marketplace (`.claude-plugin/marketplace.json`
+  at the repo root), not `npm install`.** The dashboard's onboarding card
+  and docs/07-user-manual.md Section 3 both told real users to run `npm
+  install @guardrunagent/sdk` -- caught live in staging as an `npm error
+  404` (the package had never been published, since `sdk/package.json`
+  was `private: true`). Fixing publishing alone would still have been
+  wrong: Claude Code never scans `node_modules` for plugins, so even a
+  successfully `npm install`ed package would sit inert -- its
+  `hooks/hooks.json` never registered and `${CLAUDE_PLUGIN_ROOT}` never
+  set, since those only happen through Claude Code's own plugin-loading
+  paths (`/plugin marketplace add` + `/plugin install`, `--plugin-dir`,
+  or the skills directory). Real fix: `sdk/package.json` un-privated with
+  `files: ["dist", "hooks", ".claude-plugin"]` (the published npm package
+  *is* the plugin root, so `hooks/hooks.json` and
+  `.claude-plugin/plugin.json` have to ship alongside `dist/`, not just
+  `dist/` alone) and `prepublishOnly: "npm run build"` (dist/ is
+  gitignored, built on demand); a new `.claude-plugin/marketplace.json`
+  at the repo root with one npm-sourced plugin entry; onboarding
+  (`components/home/setup-checklist.tsx`) and
+  docs/07-user-manual.md Section 3 both corrected to the real two-command
+  install (`/plugin marketplace add narasimhasn06/guardrunagent` then
+  `/plugin install guardrunagent@guardrunagent`) and the real
+  config-via-env-var-or-`~/.guardrunagent/config.json` story (no
+  `initGuardrunAgent()` call ever existed -- see the "one-shot processes"
+  decision above). Actually publishing `@guardrunagent/sdk` to npm still
+  needs a human to run `npm login`/`npm publish` themselves (this session
+  has no npm credentials) -- also requires an npm Organization named
+  `guardrunagent` to exist first, since a scoped package publish only
+  succeeds automatically under a scope matching the publisher's own npm
+  username.

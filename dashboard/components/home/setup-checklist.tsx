@@ -3,7 +3,15 @@
 import Link from "next/link";
 import { useState } from "react";
 
-const INSTALL_COMMAND = "npm install @guardrunagent/sdk";
+// GuardrunAgent ships as a Claude Code plugin (sdk/.claude-plugin/plugin.json,
+// sdk/hooks/hooks.json), not a library you `npm install` and wire up
+// yourself -- Claude Code never scans node_modules for plugins, so a plain
+// `npm install @guardrunagent/sdk` (the previous text here) would leave the
+// hooks completely inactive despite "succeeding." These are the two real
+// commands, run inside a Claude Code session: add the marketplace once,
+// then install the plugin from it (see .claude-plugin/marketplace.json at
+// the repo root, and CLAUDE.md's decisions log for why this changed).
+const INSTALL_COMMANDS = ["/plugin marketplace add narasimhasn06/guardrunagent", "/plugin install guardrunagent@guardrunagent"];
 
 /**
  * Empty state for a new org with no sessions ever (docs/04-ui-ux-design.md
@@ -16,13 +24,13 @@ const INSTALL_COMMAND = "npm install @guardrunagent/sdk";
  * here would be worse than pointing at where the real one will live.
  */
 export function SetupChecklist() {
-  const [copied, setCopied] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
-  async function handleCopy() {
+  async function handleCopy(command: string, index: number) {
     try {
-      await navigator.clipboard.writeText(INSTALL_COMMAND);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(command);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex((current) => (current === index ? null : current)), 2000);
     } catch {
       // Clipboard API can be unavailable (permissions, insecure context) --
       // the command is still selectable text either way.
@@ -34,12 +42,15 @@ export function SetupChecklist() {
       <ol>
         <li>
           <p className="setup-checklist-step-title">Install the SDK</p>
-          <div className="setup-checklist-code-row">
-            <code className="mono setup-checklist-code">{INSTALL_COMMAND}</code>
-            <button type="button" className="btn" onClick={handleCopy}>
-              {copied ? "Copied" : "Copy"}
-            </button>
-          </div>
+          <p className="page-placeholder">Run these inside a Claude Code session:</p>
+          {INSTALL_COMMANDS.map((command, index) => (
+            <div key={command} className="setup-checklist-code-row">
+              <code className="mono setup-checklist-code">{command}</code>
+              <button type="button" className="btn" onClick={() => handleCopy(command, index)}>
+                {copiedIndex === index ? "Copied" : "Copy"}
+              </button>
+            </div>
+          ))}
         </li>
         <li>
           <p className="setup-checklist-step-title">Add your API key</p>

@@ -1,0 +1,15 @@
+{
+  "name": "guardrunagent",
+  "owner": {
+    "name": "GuardrunAgent"
+  },
+  "plugins": [
+    {
+      "name": "guardrunagent",
+      "source": {
+        "source": "npm",
+        "package": "@guardrunagent/sdk"
+      }
+    }
+  ]
+}

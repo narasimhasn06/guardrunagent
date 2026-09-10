@@ -98,12 +98,15 @@ describe("RecentActivity", () => {
 });
 
 describe("SetupChecklist", () => {
-  it("shows all three steps and the install command", () => {
+  it("shows all three steps and the real plugin install commands", () => {
     render(<SetupChecklist />);
     expect(screen.getByText(/install the sdk/i)).toBeInTheDocument();
     expect(screen.getByText(/add your api key/i)).toBeInTheDocument();
     expect(screen.getByText(/run your first session/i)).toBeInTheDocument();
-    expect(screen.getByText("npm install @guardrunagent/sdk")).toBeInTheDocument();
+    // Not `npm install` -- Claude Code never scans node_modules for
+    // plugins, so the real install path is /plugin marketplace add + install.
+    expect(screen.getByText("/plugin marketplace add narasimhasn06/guardrunagent")).toBeInTheDocument();
+    expect(screen.getByText("/plugin install guardrunagent@guardrunagent")).toBeInTheDocument();
   });
 
   it("links the API key step to Settings", () => {

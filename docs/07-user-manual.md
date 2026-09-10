@@ -27,21 +27,31 @@ Follow the on-screen instructions — the exact install command and your unique 
 
 ### 3.1 Requirements
 - Claude Code already installed and in use on your team's development machines
-- Node.js environment available (the SDK is distributed as an npm package)
+- GuardrunAgent ships as a **Claude Code plugin**, not an npm package you install and import yourself — Claude Code loads it directly and wires up its hooks; there's no code to write or call.
 
 ### 3.2 Installation steps
-1. From your terminal, install the SDK:
+1. Inside a Claude Code session, add the GuardrunAgent marketplace once:
    ```
-   npm install @guardrunagent/sdk
+   /plugin marketplace add narasimhasn06/guardrunagent
    ```
-2. Initialize it in your Claude Code configuration with your API key (copied from the Settings page):
-   ```ts
-   import { initGuardrunAgent } from '@guardrunagent/sdk';
-
-   initGuardrunAgent({ apiKey: 'your-api-key-here' });
+2. Install the plugin from it:
    ```
-3. Run a Claude Code session as you normally would. GuardrunAgent works in the background — there's nothing else to change about how you use Claude Code day to day.
-4. Return to the dashboard and confirm your session appears under **Sessions**.
+   /plugin install guardrunagent@guardrunagent
+   ```
+3. Configure your org's API key (copied from the Settings page) and backend endpoint as environment variables, or in `~/.guardrunagent/config.json`:
+   ```
+   export GUARDRUNAGENT_API_KEY="your-api-key-here"
+   export GUARDRUNAGENT_ENDPOINT="https://your-backend-url"
+   ```
+   ```json
+   {
+     "apiKey": "your-api-key-here",
+     "endpoint": "https://your-backend-url"
+   }
+   ```
+   Either is enough on its own; environment variables take priority if both are set.
+4. Run a Claude Code session as you normally would. GuardrunAgent works in the background via its hooks — there's nothing else to change about how you use Claude Code day to day.
+5. Return to the dashboard and confirm your session appears under **Sessions**.
 
 ### 3.3 What gets sent, and what doesn't
 - GuardrunAgent logs: the type of action taken (file edit, command run, git action), a summary, timestamps, and cost/token usage.

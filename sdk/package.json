@@ -4,7 +4,9 @@
   "description": "GuardrunAgent SDK -- Claude Code hooks for event logging and guardrail checks",
   "license": "UNLICENSED",
   "files": [
-    "dist"
+    "dist",
+    "hooks",
+    ".claude-plugin"
   ],
   "engines": {
     "node": ">=18"
