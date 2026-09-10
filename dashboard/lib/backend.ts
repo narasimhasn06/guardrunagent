@@ -102,3 +102,53 @@ export async function getRules(): Promise<RuleOut[]> {
   const body = (await response.json()) as { rules: RuleOut[] };
   return body.rules;
 }
+
+// ---- GET /dashboard-summary --------------------------------------------
+// Not a documented endpoint (see the comment in backend/app/schemas.py) --
+// added because Home's stat cards, spend chart, and recent activity don't
+// map onto any single existing route.
+
+export interface SpendByDayRow {
+  date: string;
+  cost_usd: string;
+}
+
+export interface RecentActivityItem {
+  id: string;
+  session_id: string;
+  action_type: ActionType;
+  action_summary: string | null;
+  status: EventStatus;
+  created_at: string;
+}
+
+export interface DashboardSummaryOut {
+  org_name: string;
+  start: string;
+  end: string;
+  total_sessions: number;
+  total_spend_usd: string;
+  guardrail_blocks: number;
+  active_agents: number;
+  spend_by_day: SpendByDayRow[];
+  recent_activity: RecentActivityItem[];
+  org_has_any_sessions: boolean;
+}
+
+export type DateRangePreset = "7d" | "30d";
+
+export function presetToRangeDays(preset: DateRangePreset): number {
+  return preset === "30d" ? 30 : 7;
+}
+
+export async function getDashboardSummary(preset: DateRangePreset): Promise<DashboardSummaryOut> {
+  const end = new Date();
+  const start = new Date(end.getTime() - presetToRangeDays(preset) * 24 * 60 * 60 * 1000);
+
+  const params = new URLSearchParams({ start: start.toISOString(), end: end.toISOString() });
+  const response = await authorizedFetch(`/dashboard-summary?${params}`);
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to load dashboard summary (${response.status})`);
+  }
+  return response.json();
+}
