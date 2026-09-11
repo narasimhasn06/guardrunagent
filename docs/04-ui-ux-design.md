@@ -12,6 +12,7 @@
 
 ```
 Login (email/password or Google)
+  └── (first-time self-signup only) Create your organization
   └── Dashboard Home (org overview)
         ├── Sessions
         │     └── Session Detail (Replay view)
@@ -24,7 +25,9 @@ Login (email/password or Google)
               └── Team / Users
 ```
 
-Five primary nav items, always visible in a left sidebar: **Home, Sessions, Cost, Rules, Settings**. No deeper nesting than two levels for MVP.
+Five primary nav items, always visible in a left sidebar: **Home, Sessions, Cost, Rules, Settings**. No deeper nesting than two levels for MVP. The sidebar footer (added during implementation, on every page) shows the signed-in user's email and a **Sign out** button — not a sixth nav item, but present throughout the group above.
+
+**Create your organization** (added during implementation): a real signup that wasn't invited by a teammate has no org yet — this screen (a name field, shown instead of the app shell) is where they create one and become its admin, shown their org's API key exactly once before continuing in. Only reachable once, on first login, for a self-signup account; an invited teammate skips straight to Dashboard Home. See Section 4.1 below.
 
 ## 3. Screen-by-Screen Design
 
@@ -105,17 +108,18 @@ Two tabs: **Rules** and **Activity Log**
 
 ### 3.6 Settings
 - **API Key:** show masked key, "regenerate" button (with confirmation — regenerating breaks existing SDK installs)
-- **Slack Integration:** "Connect Slack" button (OAuth flow) or manual webhook URL paste for MVP simplicity; test button to send a sample alert
+- **Slack Integration:** manual webhook URL paste, built for MVP simplicity as planned; the "Connect Slack" OAuth flow alternative was not built — a pasted Incoming Webhook URL is the only supported path. Test button sends a sample alert.
 - **Team/Users:** simple list + invite-by-email, role toggle (Admin/Member) — no granular permissions needed at MVP. Invited members sign in via the same Login screen (email/password or Google), and are linked to the org on first login.
 
 ## 4. Key UX Flows
 
 ### 4.1 First-time setup (new customer, day 1)
-1. Sign up via Login screen (Google or email/password) → land on Dashboard Home with the empty-state setup checklist
-2. Copy install command, run in their environment
-3. Paste API key into `.env` or config as instructed
-4. Run one Claude Code session → return to dashboard → see it populate in real time (or near-real-time on next page load)
-5. Prompted (dismissible banner): "Enable starter guardrail rules?" — one-click enable of the pre-built 3–5 rules
+1. Sign up via Login screen (Google or email/password)
+2. **If invited by a teammate:** land straight on Dashboard Home with the empty-state setup checklist. **If signing up on their own:** first see the "Create your organization" screen (Section 2); name it, become its admin, and see the org's API key exactly once — then land on Dashboard Home with the same checklist.
+3. Copy the install command (real commands: `/plugin marketplace add` then `/plugin install`, run inside a Claude Code session — not `npm install`, see `docs/07-user-manual.md` Section 3), run it
+4. Configure the API key (env var or `~/.guardrunagent/config.json`) as instructed
+5. Run one Claude Code session → return to dashboard → see it populate in real time (or near-real-time on next page load)
+6. Prompted (dismissible banner): "Enable starter guardrail rules?" — one-click enable of the pre-built 3–5 rules
 
 ### 4.2 Incident investigation (the core "aha" moment)
 1. Slack alert fires: "🚫 GuardrunAgent blocked an action... [link]"

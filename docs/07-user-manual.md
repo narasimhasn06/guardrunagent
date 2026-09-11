@@ -99,6 +99,9 @@ This is where you control what your agents are and aren't allowed to do without 
 - **Slack Integration** — connect Slack or paste in a webhook URL to receive guardrail alerts. Use the test button to confirm it's working.
 - **Team** — invite teammates by email; they'll sign in the same way you did (Google or email/password) and be added to your organization automatically.
 
+### 4.6 Signing out
+Your email and a **Sign out** button are always in the bottom-left corner of the sidebar, on every page.
+
 ## 5. Getting Alerts
 
 When a guardrail rule blocks or flags an action, GuardrunAgent sends a Slack message (if configured) with a direct link to the relevant session. Clicking it takes you straight to the flagged moment in the Session Replay view — no need to search for it manually.

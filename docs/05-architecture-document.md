@@ -24,11 +24,11 @@ This document describes the system's architectural qualities, views, and cross-c
 |---|---|---|
 | SDK | TypeScript, Claude Code hooks | Matches the existing Claude Code plugin ecosystem; no new interception mechanism to invent |
 | Backend | FastAPI (Python) | Fast to build in, good async support, easy JSON/Pydantic validation for the event/guardrail payloads |
-| Backend hosting | Railway or Render | Persistent service hosting (not serverless) — needed for consistent low-latency on the synchronous guardrail-check path and stable DB connection pooling |
+| Backend hosting | **Railway** (settled during implementation — Render considered but no subscription was available; `render.yaml` kept in the repo as a ready-to-use fallback) | Persistent service hosting (not serverless) — needed for consistent low-latency on the synchronous guardrail-check path and stable DB connection pooling |
 | Database | Supabase (managed Postgres) | Removes DB ops burden; standard Postgres underneath means no query/schema compromises; bundles Auth (see below) |
 | Auth | Supabase Auth (email/password + Google OAuth, linked by email) | One vendor instead of two (no separate Clerk/Auth0); native support for both sign-in methods; JWT-based, so backend verification is stateless |
 | Dashboard | Next.js | Standard, well-supported React framework; server-rendering where useful for the data-heavy dashboard views |
-| Dashboard hosting | Railway or Render | Kept on the same vendor as the backend — one hosting relationship to manage at MVP stage, rather than splitting onto Vercel for marginal benefit |
+| Dashboard hosting | **Railway** (same note as Backend hosting above) | Kept on the same vendor as the backend — one hosting relationship to manage at MVP stage, rather than splitting onto Vercel for marginal benefit |
 | Alerting | Slack webhooks (+ email fallback) | Matches where the target users already work; no need for a dedicated notification service at this scale |
 | Version control | GitHub | Standard, not a runtime dependency |
 
@@ -62,11 +62,11 @@ This document describes the system's architectural qualities, views, and cross-c
 
 ## 5. Deployment View
 
-- **Single region** deployment for MVP (region chosen based on where pilot customers are concentrated — no multi-region need yet)
-- **Backend and dashboard**: two separate persistent services on Railway/Render, each independently deployable
-- **Database/Auth**: one Supabase project per environment (a `staging` and a `production` Supabase project, kept separate to avoid pilot data mixing with test data)
-- **No containerized orchestration (Kubernetes, etc.)** — Railway/Render's native deploy-from-git flow is sufficient at this scale and avoids unnecessary ops complexity
-- **CI**: GitHub Actions running tests on every PR (see the Test Plan document for coverage detail), auto-deploy to staging on merge to `main`, manual promote to production
+- **Single region** deployment for MVP (staging is currently deployed in Singapore, matching where pilot customers are concentrated)
+- **Backend and dashboard**: two separate persistent services on Railway, each independently deployable
+- **Database/Auth**: one Supabase project per environment (a `staging` and a `production` Supabase project, kept separate to avoid pilot data mixing with test data) — **status**: the `staging` project is provisioned and live (all migrations applied, verified against `information_schema` — see `DEPLOYMENT.md`); a separate `production` Supabase project and Railway services have not been provisioned yet, deferred past initial MVP build
+- **No containerized orchestration (Kubernetes, etc.)** — Railway's native deploy-from-git flow is sufficient at this scale and avoids unnecessary ops complexity
+- **CI**: GitHub Actions running tests on every PR (see the Test Plan document for coverage detail); Railway auto-deploys the staging services on push to `main`; production promotion is manual and not yet exercised, since production doesn't exist yet
 
 ## 6. Data Flow Architecture (Two Paths)
 
@@ -80,7 +80,7 @@ Agent about to act → SDK local pre-check → if potentially risky, synchronous
 
 - **Two independent auth domains**, never crossed:
   - Machine auth (SDK → backend): per-org API key, hashed at rest
-  - Human auth (dashboard user → backend): Supabase-issued JWT, verified statelessly via Supabase's public signing key
+  - Human auth (dashboard user → backend): Supabase-issued JWT, verified statelessly against Supabase's public JWKS endpoint (an asymmetric ES256 key, not a single shared secret as originally assumed here — Supabase's current default "JWT Signing Keys" model, confirmed against this project's real deployment; see `backend/app/auth.py` and `CLAUDE.md`'s decisions log for the real-world finding that drove this correction)
 - **Data minimization at the source**: the SDK redacts file contents and likely-secret patterns *before* anything leaves the customer's machine — the backend never receives raw source code or credentials to begin with, rather than relying on server-side scrubbing as the only safeguard
 - **Service role key isolation**: Supabase's service role key (full DB access, bypasses row-level security) exists only in the backend's server environment, never shipped to any client-side bundle
 - **Transport security**: HTTPS everywhere, no exceptions
@@ -91,7 +91,7 @@ Agent about to act → SDK local pre-check → if potentially risky, synchronous
 | Failure scenario | Mitigation |
 |---|---|
 | Backend temporarily unreachable during event logging | SDK buffers events locally, retries with backoff, falls back to a local file (`~/.guardrunagent/failed_events.jsonl`) so no data is silently lost |
-| Backend unreachable during a guardrail check | Fail-open vs. fail-closed is a configurable org-level setting; MVP default is documented and communicated clearly to pilot customers rather than silently choosing one — this is a deliberate product/trust decision, not just an engineering default |
+| Backend unreachable during a guardrail check | Fail-open vs. fail-closed is configurable, but not as an org-level setting yet — there's no schema column for it (docs/03-low-level-design.md Section 1 has no such field on `orgs`). It's a **client-side SDK config** instead (`GUARDRUNAGENT_FAIL_MODE` env var or `~/.guardrunagent/config.json`, see `sdk/src/config.ts`), defaulting to fail-open (never block the user's own work over a networking blip). Promoting this to a real org-level dashboard setting is a documented future upgrade, not built for MVP. |
 | Slack webhook delivery fails | Retried once; failure is still recorded in `guardrail_activity` so the block/flag itself is never lost from the audit trail, even if the notification didn't arrive |
 | Supabase outage | Out of scope for MVP-level mitigation (no cross-provider failover) — acceptable given Supabase's own SLA and the pilot scale; revisit if/when enterprise SLAs are sold |
 

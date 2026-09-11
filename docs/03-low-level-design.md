@@ -73,10 +73,33 @@ CREATE TABLE guardrail_activity (
   rule_id UUID REFERENCES guardrail_rules(id),
   event_id UUID REFERENCES agent_events(id),
   org_id UUID REFERENCES orgs(id),
+  session_id UUID REFERENCES sessions(id), -- added during implementation, see note below
   fired_at TIMESTAMPTZ DEFAULT now(),
   alert_sent BOOLEAN DEFAULT false
 );
+
+-- Pending Team invite, added during implementation (see note below) --
+-- holds an invited email until that person's first login, since
+-- org_members.auth_user_id can't be filled in before they've actually
+-- signed in via Supabase Auth at least once.
+CREATE TABLE org_invites (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID REFERENCES orgs(id) NOT NULL,
+  email TEXT NOT NULL UNIQUE,           -- one pending invite per email, globally
+  role TEXT NOT NULL DEFAULT 'member',  -- 'admin' | 'member', mirrors org_members.role
+  created_at TIMESTAMPTZ DEFAULT now()
+);
 ```
+
+**Schema additions beyond the original design (settled during implementation):**
+`guardrail_activity.session_id` links a firing back to its session directly
+(`event_id` is left null at guardrail-check time — the flagged/blocked
+action's `agent_events` row doesn't exist yet, since it's logged
+asynchronously afterward — so it was never usable for the Activity Log's
+"session link"). `org_invites` holds a pending Team invite (Settings →
+Team → invite-by-email) until the invited person's first login, at which
+point `app/auth.py`'s `verify_jwt` consumes it and creates their
+`org_members` row. See `CLAUDE.md`'s decisions log for full rationale.
 
 **Note on the auth split:** `orgs.api_key_hash` authenticates the SDK (machine-to-machine). `org_members.auth_user_id` links a dashboard user (human, authenticated by Supabase Auth) to an org and a role. These two auth paths never cross.
 
@@ -106,6 +129,23 @@ CREATE TABLE guardrail_activity (
 ## 3. SDK Design (TypeScript)
 
 ### 3.1 Hook registration
+
+**Note (settled during implementation):** the snippet below is illustrative
+of the intended behavior, not literal — Claude Code invokes each hook as a
+fresh, one-shot process per tool call (verified against Claude Code's real
+hooks docs), not a persistent runtime a `registerHook()` call could
+subscribe within. The actual SDK is a set of standalone entry points
+(`sdk/src/hooks/*.ts`, wired up via `sdk/hooks/hooks.json`) and a
+file-backed event queue (`sdk/src/queue.ts`) instead of an in-memory
+buffer, since nothing persists between one hook invocation and the next.
+There's also no `initGuardrunAgent({ apiKey })` call site the way this
+snippet shows — configuration comes from an environment variable or
+`~/.guardrunagent/config.json` instead (Section 3.2 below), since there's
+no user code to call into. The SDK itself is distributed as a **Claude
+Code plugin** (`.claude-plugin/plugin.json` + `hooks/hooks.json`), not a
+library end users `import` — see `CLAUDE.md`'s decisions log and
+`docs/07-user-manual.md` Section 3 for the real install/config flow.
+
 ```ts
 // guardrunagent-sdk/src/index.ts
 import { registerHook } from '@claude-code/hooks'; // conceptual — matches actual hook API
@@ -130,12 +170,24 @@ export function initGuardrunAgent(config: { apiKey: string; endpoint?: string })
 ```
 
 ### 3.2 Local rule cache
-- On SDK init, fetch active guardrail rules for the org (`GET /rules`, authenticated via API key) and cache in memory
-- Refresh every 5 minutes (poll — no need for websockets/push at MVP scale)
+- Fetch active guardrail rules for the org (`GET /rules`, authenticated via API key) and cache **on disk** (`~/.guardrunagent/rules-cache.json`), not in memory — same one-shot-process reasoning as Section 3.1/3.3: there's no persistent SDK process to hold an in-memory timer across tool calls, so the cache is checked fresh on each `PreToolUse` invocation instead (`sdk/src/ruleCache.ts`)
+- Refresh every 5 minutes (checked against the cache file's age on each invocation — no background timer)
 - Local pre-check is a cheap regex/prefix match against `pattern_value`; only escalate to a network call if a pattern *might* match, keeping the common path (harmless actions) fully local and fast
 
 ### 3.3 Event buffering & retry
-- Events are pushed to an in-memory queue, flushed in batches of up to 50 or every 2 seconds (whichever first)
+
+**Note (settled during implementation):** "in-memory queue, flushed every 2
+seconds" below assumes a persistent SDK process holding a buffer and a
+timer — Section 3.1's note already covers why that doesn't hold. The real
+mechanism (`sdk/src/queue.ts`) is a **file-backed, per-session queue**
+(`~/.guardrunagent/queue/<session-id>.jsonl`): each one-shot hook process
+appends its event and opportunistically flushes if the queue has grown
+past the batch size or its oldest entry is old enough, which behaves
+close to the documented cadence during an active session and simply lets
+events sit until the next tool call (or `SessionEnd`'s final flush)
+during an idle stretch.
+
+- Events are appended to the on-disk queue, flushed in batches of up to 50 or when the oldest queued entry is at least 2 seconds old (checked on every hook invocation, not by a background timer)
 - On `POST /events` failure: exponential backoff retry (3 attempts), then write to a local fallback file (`~/.guardrunagent/failed_events.jsonl`) so nothing is silently lost
 - A background flush on SDK init retries any previously failed events from that file
 
@@ -195,6 +247,26 @@ Response:
 - Query params: `group_by` (`day` | `project` | `agent`), `date_range`
 - Aggregation query against `agent_events`, grouped and summed server-side — no need for a separate analytics warehouse at this volume
 
+### 4.5 Additional endpoints (settled during implementation)
+
+The dashboard pages named in Section 6 below need more endpoints than
+Sections 4.1-4.4 specify. All are documented in full (request/response
+Pydantic models) inline in `backend/app/schemas.py`, organized by page —
+this section is a summary, not a duplicate of that detail:
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `GET /me` | Supabase JWT | Reports `{email, has_org, org_id, role}` — the dashboard's first call after sign-in, deciding whether to show the normal app shell or the "create your organization" screen. See Section 2.2 step 6. |
+| `POST /orgs` | Supabase JWT | Creates a new org, makes the caller its admin, returns a real API key (shown once). The new-org-signup half of Section 2.2 step 6. |
+| `GET /sessions` | Supabase JWT | Filterable, paginated session list (project/agent/search/status/date range) powering the Sessions page (Section 6). |
+| `GET /dashboard-summary` | Supabase JWT | Stat cards, spend-per-day chart, and recent activity feed for Dashboard Home — doesn't map onto any single endpoint above. |
+| `GET /cost-breakdown` | Supabase JWT | Two-dimensional (day × project/agent) cost data for the Cost Dashboard's stacked bar chart — `GET /cost-summary` only groups by one dimension at a time. |
+| `GET /guardrail-activity` | Supabase JWT | Paginated Activity Log tab (Section 6, Guardrail Rules page). |
+| `PATCH /rules/{id}` | Supabase JWT | Edits an existing rule (name/pattern/action/enabled) — rule creation is `POST /rules`, implied but not spelled out above. |
+| `POST /rules/starter` | Supabase JWT | One-click enable of the pre-built starter rule set (docs/04-ui-ux-design.md Section 3.5). |
+| `GET /settings`, `POST /settings/api-key/regenerate`, `PUT /settings/slack-webhook`, `POST /settings/slack-webhook/test`, `POST /settings/team/invite`, `DELETE /settings/team/invites/{id}`, `PATCH /settings/team/{id}` | Supabase JWT | The full Settings page (Section 6): API key display/regenerate, Slack webhook config/test, team invite/cancel/role management. |
+| `GET /rules` | **Either** API key or Supabase JWT | Dual-purpose: the SDK's local rule cache fetch (Section 3.2) and the dashboard's Rules page read the same path, dispatched by whichever credential is presented — see `app/auth.py`'s `verify_api_key_or_jwt`. Always returns all rules including disabled ones; the SDK's local matcher filters `enabled` client-side. |
+
 ## 5. Alerting Service
 
 - Simple internal function, not a separate microservice at MVP scale
@@ -212,12 +284,18 @@ Response:
 | `/sessions/[id]` | Session Replay — chronological event timeline | `GET /sessions/:id` |
 | `/cost` | Cost dashboard, grouped by day/project/agent, simple bar/line charts | `GET /cost-summary` |
 | `/rules` | Guardrail rule config (CRUD) + recent activity log | `GET/POST /rules`, `GET /guardrail-activity` |
-| `/settings` | API key, Slack webhook config, team members | `orgs`, `org_members` tables |
+| `/settings` | API key, Slack webhook config, team members | `GET/POST /settings/*` (Section 4.5) |
+
+**Sign-out**, added during implementation: the sidebar footer (present on
+every page in the group above) shows the signed-in user's email and a
+"Sign out" button — not named anywhere in the original design, added
+after being found missing live in staging. See
+`dashboard/components/sidebar.tsx` and `docs/04-ui-ux-design.md` Section 2.
 
 ## 7. Security Notes for MVP (minimum bar, not final)
 
 - API keys (SDK auth) stored hashed, never logged in plaintext. Implemented as HMAC-SHA256 keyed by a server-only pepper (`API_KEY_PEPPER`), not bcrypt/argon2 as originally suggested here: those are deliberately slow to resist brute-forcing a human-guessable secret, but GuardrunAgent's API keys are high-entropy random tokens (`secrets.token_urlsafe(32)`) generated by the backend, not user-chosen -- bcrypt's slowness bought no real security there and cost ~270ms per check (measured), which alone exceeded the guardrail-check path's 200ms p99 target before any rule matching happened. See `backend/app/api_keys.py`.
-- Supabase JWTs verified on every backend request using Supabase's public JWT secret; never trust a JWT without verifying its signature
+- Supabase JWTs verified on every backend request against Supabase's public JWKS endpoint (see Section 2.2); never trust a JWT without verifying its signature
 - Supabase's service role key lives only in the backend environment — never in the frontend bundle (see Section 2.3)
 - All traffic over HTTPS only
 - Row-level scoping by `org_id` enforced at the application/query layer for MVP (not Postgres RLS) — Supabase makes RLS straightforward to add later since the DB is already Supabase-managed; documented as a v2 upgrade, not built now

@@ -8,7 +8,7 @@ Four components: an **SDK/hook** embedded in the customer's Claude Code environm
 ┌─────────────────┐        HTTPS (async, batched)        ┌──────────────────┐
 │  Claude Code     │ ───────────────────────────────────▶ │  Ingestion API    │
 │  + GuardrunAgent │                                       │  (FastAPI,        │
-│  SDK (hooks into │ ◀──── guardrail decision (sync) ───── │   Railway/Render) │
+│  SDK (hooks into │ ◀──── guardrail decision (sync) ───── │   Railway)        │
 │  tool-use events)│                                       └────────┬──────────┘
 └─────────────────┘                                                │
                                                                      ▼
@@ -21,7 +21,7 @@ Four components: an **SDK/hook** embedded in the customer's Claude Code environm
                                           Supabase JWT   ┌──────────────────┐
                                         ◀──────────────  │  Dashboard         │
                                                           │  (Next.js,         │
-                                                          │   Railway/Render)  │
+                                                          │   Railway)         │
                                                           │  Session Replay,   │
                                                           │  Cost View,        │
                                                           │  Rule Config       │
@@ -33,6 +33,12 @@ Four components: an **SDK/hook** embedded in the customer's Claude Code environm
                                                           │  Email)           │
                                                           └──────────────────┘
 ```
+
+**Deployment note (settled during implementation):** both services actually
+run on **Railway**, not "Railway or Render" — no Render subscription was
+available. `render.yaml` still exists in the repo as a ready-to-use
+fallback if a Render subscription exists later, but it isn't the active
+path. See `DEPLOYMENT.md` and `CLAUDE.md`'s decisions log.
 
 ## 2. Component Breakdown
 
@@ -46,7 +52,7 @@ Four components: an **SDK/hook** embedded in the customer's Claude Code environm
 - Authenticates to the backend using a per-org **API key** — a separate, simpler mechanism from the human dashboard login (see Section 2.4)
 
 ### 2.2 Ingestion API
-- FastAPI service, single deployment, hosted on **Railway or Render** (persistent service — not serverless — since the sync guardrail-check path needs consistent low latency and stable DB connections)
+- FastAPI service, single deployment, hosted on **Railway** (persistent service — not serverless — since the sync guardrail-check path needs consistent low latency and stable DB connections)
 - Two endpoints matter most:
   - `POST /events` — accepts a batch of session events, writes to Supabase Postgres
   - `POST /guardrail-check` — accepts a proposed action, evaluates against the org's active rules, returns allow/block/flag synchronously (must be fast — target <200ms)
@@ -60,11 +66,12 @@ Four components: an **SDK/hook** embedded in the customer's Claude Code environm
 ### 2.4 Authentication — Supabase Auth
 - **Dashboard users (humans):** Supabase Auth handles sign-in via email/password and "Login with Google" (OAuth). Accounts are linked by email so a user signing up both ways still resolves to a single account.
 - **SDK → Backend (machines):** stays as a simple per-org API key, unrelated to Supabase Auth. Keeping human and machine auth separate avoids overengineering the machine path with a full auth provider it doesn't need.
-- The Next.js dashboard talks to Supabase Auth directly for login/session; the resulting Supabase JWT is passed to the FastAPI backend on each request, which verifies it using Supabase's public JWT secret. No separate backend-side auth proxy layer.
+- The Next.js dashboard talks to Supabase Auth directly for login/session; the resulting Supabase JWT is passed to the FastAPI backend on each request, which verifies it locally. Not against a single "public JWT secret" as originally described here: Supabase's current default is its "JWT Signing Keys" feature, an asymmetric key (ES256) verified against the project's public JWKS endpoint, confirmed against this project's real deployment — see `backend/app/auth.py` and `CLAUDE.md`'s decisions log. No separate backend-side auth proxy layer either way.
 - Supabase's **service role key** (which bypasses row-level security) lives only in the FastAPI backend's environment — never in the Next.js frontend/browser bundle.
+- **First-time signup with no org yet** isn't just "handled" implicitly: a real (non-invited) signup has no `org_members` row and no invite waiting, so the dashboard's `GET /me` reports this and shows a "create your organization" screen instead of any other page, which creates the org via `POST /orgs`. See `backend/app/routers/orgs.py` and `docs/03-low-level-design.md` Section 2.2.
 
 ### 2.5 Dashboard
-- Next.js app, hosted on **Railway or Render** (kept consistent with the backend's hosting; Vercel was considered and intentionally not used, to avoid managing a second hosting vendor for no clear MVP benefit)
+- Next.js app, hosted on **Railway** (kept consistent with the backend's hosting; Vercel was considered and intentionally not used, to avoid managing a second hosting vendor for no clear MVP benefit)
 - Reads via the backend API (no separate analytics pipeline at MVP stage)
 - Three core views: Session Replay, Cost Dashboard, Guardrail Rule Config + Activity Log
 
@@ -93,15 +100,15 @@ All other (non-risky) actions are logged fully asynchronously — no added laten
 | Guardrail rules are a small, curated set (not a full policy DSL) at MVP | Validates the concept and covers the highest-fear actions (force-push, `rm -rf`, protected paths) without over-engineering a rules engine no one has validated yet |
 | Redact/truncate file contents in logged payloads | Avoids becoming a liability (storing customer source code/secrets) before any security review or compliance work is done |
 | **Supabase for both DB and Auth** | Removes a vendor (no separate Clerk/Auth0) while still getting managed Postgres, built-in email/password + OAuth, and a clear upgrade path to RLS later |
-| **Backend and dashboard both on Railway/Render, not split onto Vercel** | Keeps hosting simple (one vendor for both persistent services) and avoids the cold-start/timeout risk Vercel's serverless functions would introduce on the synchronous guardrail-check path |
+| **Backend and dashboard both on Railway, not split onto Vercel** | Keeps hosting simple (one vendor for both persistent services) and avoids the cold-start/timeout risk Vercel's serverless functions would introduce on the synchronous guardrail-check path |
 | Human auth (Supabase Auth) and machine auth (API key) kept fully separate | These are different trust models — a person logging into a UI vs. a customer's server sending events — conflating them would overcomplicate both paths |
 
 ## 5. Deployment Topology (MVP)
 
-- Backend (FastAPI) and Dashboard (Next.js): both hosted on Railway or Render as persistent services, single region
-- Database + Auth: Supabase (managed Postgres + Supabase Auth), single project
+- Backend (FastAPI) and Dashboard (Next.js): both hosted on **Railway** as persistent services, single region (see Section 2.2's note — no Render subscription available; `render.yaml` kept as an unused fallback)
+- Database + Auth: Supabase (managed Postgres + Supabase Auth) — a `staging` project exists and is live; a separate `production` project is not yet provisioned (deferred past MVP build)
 - No multi-tenancy isolation beyond row-level `org_id` scoping (acceptable at pilot scale; RLS is a documented future upgrade — see Section 4)
-- SDK distributed as an npm package customers install and configure with an API key
+- **SDK distributed as a Claude Code plugin, not a plain npm package** — customers run `/plugin marketplace add` + `/plugin install` inside a Claude Code session, not `npm install`. Claude Code never scans `node_modules` for plugins, so a plain npm install would never wire up the SDK's hooks at all. The plugin marketplace (`.claude-plugin/marketplace.json` at the repo root) does point at an npm-published package (`@guardrunagent/sdk`) as its source, so npm is still involved as a distribution channel, just not the direct install command. See `CLAUDE.md`'s decisions log and `docs/07-user-manual.md` Section 3.
 - Version control: GitHub (development only, not a runtime component)
 
 ## 6. What Explicitly Is NOT in the MVP Architecture

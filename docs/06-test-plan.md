@@ -35,7 +35,9 @@
 |---|---|
 | `POST /events` | Valid batch insert succeeds; malformed event payload returns 4xx with a clear error; `org_id` correctly resolved from API key; session totals (`total_cost_usd`, `total_tokens`) update incrementally and correctly |
 | `POST /guardrail-check` | Correct rule match returns the right decision and rule ID; no rule match returns `allow`; disabled rules are never matched; latency stays under 200ms for a realistic rule set size (test with 20+ rules) |
-| JWT verification middleware | Valid Supabase JWT is accepted; expired JWT is rejected; malformed/missing JWT is rejected; JWT for a user with no `org_members` row is handled gracefully (triggers org-join/creation flow, doesn't crash) |
+| JWT verification middleware | Valid Supabase JWT is accepted (both the current JWKS/ES256 path and the legacy HS256-shared-secret fallback, tested separately); expired JWT is rejected; malformed/missing JWT is rejected; an ES256 token signed with the wrong key still fails closed rather than falling through to the legacy path; a token with no matching JWKS key *and* no legacy secret configured fails as a normal 401, not an unhandled exception; JWT for a user with no `org_members` row is handled gracefully — auto-joins an org if a pending invite matches their email, otherwise 403s cleanly (the "create your own org" case is `GET /me`, not `verify_jwt` — see the row below) |
+| `GET /me` / `POST /orgs` | `GET /me` reports `has_org: false` for a user with neither an org nor a pending invite, auto-joins (and reports `has_org: true`) when a pending invite matches, and reports the existing org for a current member; `POST /orgs` creates an org + admin membership and returns a real API key, rejects an empty name (400) and a user who already has an org (409) |
+| `.maybe_single()` result handling | A real Supabase client returns `None` outright (not a response object with `.data = None`) when a `.maybe_single()` query matches zero rows — every one of this backend's 8 call sites goes through a shared `maybe_single_result()` helper that normalizes this, and the test double replicates the real client's behavior so a "not found" case exercises the same code path a production 500 would have hit |
 | API key auth | Valid key resolves correct `org_id`; invalid/revoked key is rejected; hashed comparison is timing-safe |
 | Cost aggregation (`GET /cost-summary`) | Correct grouping by day/project/agent; date range filtering is inclusive/exclusive as documented; empty result set (no data yet) returns a valid empty response, not an error |
 
@@ -43,6 +45,9 @@
 | Test area | Key cases |
 |---|---|
 | Login screen | Email/password form validation; Google OAuth button triggers the correct redirect; password-reset link only shown for email/password users |
+| Sidebar | Shows the signed-in user's email; "Sign out" calls Supabase sign-out and redirects to `/login` |
+| Create your organization | Submits the org name, shows the returned API key exactly once, "Continue to dashboard" refreshes into the normal app shell; shows the backend's error (e.g. already belongs to an org) and stays on the form |
+| Auth callback route (`/auth/callback`) | Redirects using `X-Forwarded-Proto`/`X-Forwarded-Host` when present, not the request URL's own origin — this is the one route Google OAuth and password-reset both go through, and the origin it computes matters: a real deployment behind a reverse proxy can otherwise leak the container's internal bind address into the redirect (caught live in staging, see `CLAUDE.md`'s decisions log). Falls back to the request URL's origin with no forwarded headers (local dev); honors the password-reset `next` param; failure paths (bad or missing code) land on `/login?error=auth` |
 | Session Replay | Events render in chronological order; blocked/flagged events show the correct visual treatment and matched rule name; expandable event cards show/hide reasoning correctly |
 | Cost Dashboard | Chart and table stay in sync when toggling group-by; CSV export produces a correctly formatted file matching the displayed data |
 | Guardrail Rules | Rule creation form validates required fields; starter rules can be enabled with one click; rule edits persist and reflect immediately in the Activity Log |
@@ -63,10 +68,11 @@ These map directly to the key UX flows documented in the UI/UX doc — each shou
 
 ### 5.1 First-time setup flow
 1. New user signs up (both via email/password and, separately, via Google — test both paths)
-2. Dashboard shows the empty-state setup checklist
-3. User installs SDK, configures API key, runs a Claude Code session
-4. Session appears in the dashboard's Sessions list within an acceptable delay
-5. User enables starter guardrail rules with one click
+2. **If self-signup (no invite):** shown "Create your organization"; names one, becomes its admin, sees the org's API key once. **If invited:** skips straight to step 3.
+3. Dashboard shows the empty-state setup checklist
+4. User installs the SDK (real flow: `/plugin marketplace add` + `/plugin install` inside a Claude Code session, not `npm install` — see `docs/07-user-manual.md` Section 3), configures the API key, runs a Claude Code session
+5. Session appears in the dashboard's Sessions list within an acceptable delay
+6. User enables starter guardrail rules with one click
 
 **Pass criteria:** all steps complete without manual intervention or unhandled errors; session data is accurate and complete.
 
@@ -92,8 +98,9 @@ These map directly to the key UX flows documented in the UI/UX doc — each shou
 2. Log out, sign in with Google using the same `user@company.com`
 3. Verify this resolves to the same account/org, not a duplicate
 4. Attempt password reset — verify it's only offered where applicable (email/password users only)
+5. Sign in with Google against the real deployed environment (not local dev) and verify the post-login redirect lands on the actual public dashboard domain, not an internal/unreachable address — a real deployment behind a reverse proxy is exactly where this class of bug surfaces (see `CLAUDE.md`'s decisions log); local dev alone won't catch it
 
-**Pass criteria:** no duplicate accounts are ever created; password-reset visibility is correct per user type.
+**Pass criteria:** no duplicate accounts are ever created; password-reset visibility is correct per user type; Google sign-in against the real deployed environment completes and lands the user on a reachable page.
 
 ## 6. Non-Functional / Performance Testing
 
