@@ -11,13 +11,24 @@ const ROLE_LABELS: Record<TeamRole, string> = { admin: "Admin", member: "Member"
  * invite-by-email, role toggle (Admin/Member)." Invited rows show
  * alongside members, distinguished as pending, with a way to cancel a
  * mistaken invite -- not explicitly asked for in the doc, but without it
- * a bad invite (typo'd email, wrong role) would be permanently stuck. */
+ * a bad invite (typo'd email, wrong role) would be permanently stuck.
+ *
+ * `isAdmin` gates the invite form, role-toggle button, and cancel-invite
+ * button -- a Member sees the same list read-only. Bug fix: these
+ * controls used to render for every org member regardless of role, and
+ * nothing on the backend checked role either, so a Member could invite
+ * teammates or promote themselves to Admin. This is a UI convenience
+ * only; the real gate is the backend's own check (see
+ * backend/app/routers/settings.py's _require_admin) -- never rely on
+ * this prop alone for security. */
 export function TeamSection({
   team,
   pendingInvites,
+  isAdmin,
 }: {
   team: TeamMemberOut[];
   pendingInvites: PendingInviteOut[];
+  isAdmin: boolean;
 }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -92,15 +103,19 @@ export function TeamSection({
             <tr key={member.id}>
               <td>{member.email}</td>
               <td>
-                <button
-                  type="button"
-                  className="role-toggle"
-                  aria-label={`Change ${member.email}'s role (currently ${ROLE_LABELS[member.role]})`}
-                  disabled={pendingActionId === member.id}
-                  onClick={() => handleToggleRole(member)}
-                >
-                  {ROLE_LABELS[member.role]}
-                </button>
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    className="role-toggle"
+                    aria-label={`Change ${member.email}'s role (currently ${ROLE_LABELS[member.role]})`}
+                    disabled={pendingActionId === member.id}
+                    onClick={() => handleToggleRole(member)}
+                  >
+                    {ROLE_LABELS[member.role]}
+                  </button>
+                ) : (
+                  ROLE_LABELS[member.role]
+                )}
               </td>
             </tr>
           ))}
@@ -111,14 +126,16 @@ export function TeamSection({
               </td>
               <td className="team-invite-role-cell">
                 <span className="mono">{ROLE_LABELS[invite.role]}</span>
-                <button
-                  type="button"
-                  className="link-button"
-                  disabled={pendingActionId === invite.id}
-                  onClick={() => handleCancelInvite(invite.id)}
-                >
-                  Cancel invite
-                </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="link-button"
+                    disabled={pendingActionId === invite.id}
+                    onClick={() => handleCancelInvite(invite.id)}
+                  >
+                    Cancel invite
+                  </button>
+                )}
               </td>
             </tr>
           ))}
@@ -132,35 +149,37 @@ export function TeamSection({
         </tbody>
       </table>
 
-      <form onSubmit={handleInvite} className="new-rule-form">
-        <div className="new-rule-form-field">
-          <label className="login-label" htmlFor="invite-email">
-            Invite by email
-          </label>
-          <input
-            id="invite-email"
-            type="email"
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-        </div>
-        <div className="new-rule-form-field">
-          <label className="login-label" htmlFor="invite-role">
-            Role
-          </label>
-          <select id="invite-role" value={role} onChange={(event) => setRole(event.target.value as TeamRole)}>
-            <option value="member">Member</option>
-            <option value="admin">Admin</option>
-          </select>
-        </div>
-        {inviteError && <p className="login-error">{inviteError}</p>}
-        <div className="new-rule-form-actions">
-          <button type="submit" className="btn btn-primary" disabled={inviting}>
-            {inviting ? "Inviting…" : "Invite"}
-          </button>
-        </div>
-      </form>
+      {isAdmin && (
+        <form onSubmit={handleInvite} className="new-rule-form">
+          <div className="new-rule-form-field">
+            <label className="login-label" htmlFor="invite-email">
+              Invite by email
+            </label>
+            <input
+              id="invite-email"
+              type="email"
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </div>
+          <div className="new-rule-form-field">
+            <label className="login-label" htmlFor="invite-role">
+              Role
+            </label>
+            <select id="invite-role" value={role} onChange={(event) => setRole(event.target.value as TeamRole)}>
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          {inviteError && <p className="login-error">{inviteError}</p>}
+          <div className="new-rule-form-actions">
+            <button type="submit" className="btn btn-primary" disabled={inviting}>
+              {inviting ? "Inviting…" : "Invite"}
+            </button>
+          </div>
+        </form>
+      )}
     </section>
   );
 }

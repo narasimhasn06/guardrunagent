@@ -1,7 +1,9 @@
-"""Endpoint-level tests for GET /admin/orgs and GET /admin/orgs/:id/members
--- the Super Admin role's two endpoints (app/routers/admin.py). See
-CLAUDE.md's "Planned, not yet built" entry this closes. Not part of
-docs/06-test-plan.md's original scope, same as the rest of Settings/orgs.
+"""Endpoint-level tests for GET /admin/orgs, GET /admin/orgs/:id/members,
+and POST /admin/orgs/:id/invite -- the Super Admin role's endpoints
+(app/routers/admin.py). See CLAUDE.md's "Planned, not yet built" entry
+this closes and its decisions log for the invite endpoint added after.
+Not part of docs/06-test-plan.md's original scope, same as the rest of
+Settings/orgs.
 """
 
 from __future__ import annotations
@@ -141,3 +143,108 @@ class TestGetOrgMembers:
         assert body["org_name"] == "Acme Inc"
         assert body["team"] == [{**member_row, "created_at": "2026-09-01T10:00:00Z"}]
         assert body["pending_invites"] == [{**invite_row, "created_at": "2026-09-10T10:00:00Z"}]
+
+
+class TestInviteOrgMember:
+    """POST /admin/orgs/:id/invite -- lets a Super Admin invite a new
+    member into any org from the Organizations detail page. Added after
+    the initial read-only build; see CLAUDE.md's decisions log. Mirrors
+    tests/test_settings_endpoint.py's TestInviteTeamMember, since both
+    endpoints go through the same app/invites.py's create_pending_invite.
+    """
+
+    INVITE_ROW = {
+        "id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+        "email": "new.hire@example.com",
+        "role": "member",
+        "created_at": "2026-09-10T10:00:00+00:00",
+    }
+
+    def test_missing_auth_is_rejected(self, client):
+        response = client.post(f"/admin/orgs/{ORG_A}/invite", json={"email": "x@example.com"})
+        assert response.status_code == 401
+
+    def test_non_platform_admin_is_rejected(self, client):
+        from fastapi import HTTPException, status
+
+        def _reject():
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a platform admin")
+
+        app.dependency_overrides[verify_platform_admin] = _reject
+        response = client.post(f"/admin/orgs/{ORG_A}/invite", json={"email": "x@example.com"})
+        assert response.status_code == 403
+
+    def test_unknown_org_returns_404(self, client):
+        _override_platform_admin()
+        fake = FakeSupabase(table_data={"orgs": {"select": None}})
+
+        with patch("app.routers.admin.get_supabase", return_value=fake):
+            response = client.post(f"/admin/orgs/{ORG_A}/invite", json={"email": "new.hire@example.com"})
+
+        assert response.status_code == 404
+
+    def test_creates_a_pending_invite_scoped_to_the_requested_org(self, client):
+        _override_platform_admin()
+        fake = FakeSupabase(
+            table_data={
+                "orgs": {"select": {"name": "Acme Inc"}},
+                "org_members": {"select": None},
+                "org_invites": {"select": None, "insert": [self.INVITE_ROW]},
+            }
+        )
+
+        with patch("app.routers.admin.get_supabase", return_value=fake):
+            response = client.post(
+                f"/admin/orgs/{ORG_A}/invite", json={"email": "New.Hire@Example.com", "role": "member"}
+            )
+
+        assert response.status_code == 201
+        assert response.json()["email"] == "new.hire@example.com"
+
+        insert_calls = [c for c in fake.recorded_calls if c[0] == "insert" and c[1] == "org_invites"]
+        assert insert_calls[0][2] == {"org_id": ORG_A, "email": "new.hire@example.com", "role": "member"}
+
+    def test_defaults_to_member_role(self, client):
+        _override_platform_admin()
+        fake = FakeSupabase(
+            table_data={
+                "orgs": {"select": {"name": "Acme Inc"}},
+                "org_members": {"select": None},
+                "org_invites": {"select": None, "insert": [self.INVITE_ROW]},
+            }
+        )
+
+        with patch("app.routers.admin.get_supabase", return_value=fake):
+            client.post(f"/admin/orgs/{ORG_A}/invite", json={"email": "new.hire@example.com"})
+
+        insert_calls = [c for c in fake.recorded_calls if c[0] == "insert" and c[1] == "org_invites"]
+        assert insert_calls[0][2]["role"] == "member"
+
+    def test_already_a_member_returns_409(self, client):
+        _override_platform_admin()
+        fake = FakeSupabase(
+            table_data={
+                "orgs": {"select": {"name": "Acme Inc"}},
+                "org_members": {"select": {"id": "x"}},
+            }
+        )
+
+        with patch("app.routers.admin.get_supabase", return_value=fake):
+            response = client.post(f"/admin/orgs/{ORG_A}/invite", json={"email": "jane@example.com"})
+
+        assert response.status_code == 409
+
+    def test_already_invited_returns_409(self, client):
+        _override_platform_admin()
+        fake = FakeSupabase(
+            table_data={
+                "orgs": {"select": {"name": "Acme Inc"}},
+                "org_members": {"select": None},
+                "org_invites": {"select": {"id": "x"}},
+            }
+        )
+
+        with patch("app.routers.admin.get_supabase", return_value=fake):
+            response = client.post(f"/admin/orgs/{ORG_A}/invite", json={"email": "new.hire@example.com"})
+
+        assert response.status_code == 409

@@ -29,7 +29,7 @@ export default async function AdminOrgDetailPage({ params }: { params: Promise<{
         ← All organizations
       </Link>
       <h1 className="page-title">{org.org_name}</h1>
-      <OrgMembersPanel team={org.team} pendingInvites={org.pending_invites} />
+      <OrgMembersPanel orgId={id} team={org.team} pendingInvites={org.pending_invites} />
     </div>
   );
 }

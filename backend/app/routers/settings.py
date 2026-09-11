@@ -9,6 +9,7 @@ from app.alerting import post_to_slack
 from app.api_keys import hash_api_key
 from app.auth import UserAuth, verify_jwt
 from app.db import get_supabase, maybe_single_result
+from app.invites import create_pending_invite
 from app.schemas import (
     ApiKeyRegenerateOut,
     FailModeIn,
@@ -24,6 +25,24 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/settings")
+
+
+def _require_admin(auth: UserAuth) -> None:
+    """Guards the Team tab's mutation endpoints below (invite, role
+    change, cancel invite). These never actually checked `auth.role`
+    before -- any Member, not just an Admin, could invite teammates or
+    even promote themselves to Admin via the role toggle. Caught during
+    manual verification of the Super Admin rollout; fixed here rather
+    than left as "no granular permissions needed at MVP" (the docs'
+    original framing, docs/04-ui-ux-design.md Section 3.6) -- Admin vs.
+    Member is meant to mean something, and self-promotion in particular
+    is a real privilege-escalation path, not just a missing nicety. The
+    dashboard also hides these controls from a non-admin (see
+    components/settings/team-section.tsx's `isAdmin` prop), but that's
+    only ever a UI convenience -- this check is the actual gate.
+    """
+    if auth.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only org admins can manage the team")
 
 
 @router.get("", response_model=SettingsOut)
@@ -59,6 +78,7 @@ def get_settings_page(auth: UserAuth = Depends(verify_jwt)) -> SettingsOut:
         fail_mode=org.get("fail_mode", "open"),
         team=[TeamMemberOut(**row) for row in team_result.data or []],
         pending_invites=[PendingInviteOut(**row) for row in invites_result.data or []],
+        your_role=auth.role,
     )
 
 
@@ -128,27 +148,15 @@ def invite_team_member(body: TeamInviteIn, auth: UserAuth = Depends(verify_jwt))
     schema has one org per user, so an email already belonging to any org
     can't be re-invited.
     """
+    _require_admin(auth)
     supabase = get_supabase()
-    email = body.email.strip().lower()
-
-    existing_member = maybe_single_result(supabase.table("org_members").select("id").eq("email", email).maybe_single())
-    if existing_member.data:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This email already belongs to a team")
-
-    existing_invite = maybe_single_result(supabase.table("org_invites").select("id").eq("email", email).maybe_single())
-    if existing_invite.data:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This email has already been invited")
-
-    result = (
-        supabase.table("org_invites")
-        .insert({"org_id": str(auth.org_id), "email": email, "role": body.role})
-        .execute()
-    )
-    return PendingInviteOut(**result.data[0])
+    invite = create_pending_invite(supabase, str(auth.org_id), body.email, body.role)
+    return PendingInviteOut(**invite)
 
 
 @router.delete("/team/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)
 def cancel_invite(invite_id: UUID, auth: UserAuth = Depends(verify_jwt)) -> None:
+    _require_admin(auth)
     supabase = get_supabase()
     supabase.table("org_invites").delete().eq("id", str(invite_id)).eq("org_id", str(auth.org_id)).execute()
 
@@ -157,6 +165,7 @@ def cancel_invite(invite_id: UUID, auth: UserAuth = Depends(verify_jwt)) -> None
 def update_team_member_role(
     member_id: UUID, body: TeamRoleUpdateIn, auth: UserAuth = Depends(verify_jwt)
 ) -> TeamMemberOut:
+    _require_admin(auth)
     supabase = get_supabase()
     result = (
         supabase.table("org_members")

@@ -445,6 +445,12 @@ export interface SettingsOut {
   fail_mode: FailMode;
   team: TeamMemberOut[];
   pending_invites: PendingInviteOut[];
+  // The caller's own role in this org -- drives whether TeamSection shows
+  // its management controls (invite form, role toggle, cancel invite).
+  // Bug fix: those were previously shown to every org member regardless
+  // of role, and the backend's mutation endpoints didn't check role
+  // either -- see backend/app/routers/settings.py's _require_admin.
+  your_role: TeamRole;
 }
 
 export async function getSettings(): Promise<SettingsOut> {
@@ -547,13 +553,16 @@ export async function updateTeamMemberRole(memberId: string, role: TeamRole): Pr
   return response.json();
 }
 
-// ---- GET /admin/orgs, GET /admin/orgs/:id/members -------------------------
+// ---- GET /admin/orgs, GET /admin/orgs/:id/members, POST /admin/orgs/:id/invite ----
 // Super Admin role -- a platform-level operator, separate from each org's
 // own admin/member roles, who can see every org (MeOut.is_platform_admin
-// drives the "Organizations" nav item, see components/sidebar.tsx). Both
-// calls are reads only, from Server Components (app/(dashboard)/admin/**),
-// same as getSessionDetail above -- there's no mutation on this screen, so
-// no Route Handler indirection is needed.
+// drives the "Organizations" nav item, see components/sidebar.tsx). The
+// two GETs are reads only, from Server Components (app/(dashboard)/admin/**),
+// same as getSessionDetail above -- no Route Handler indirection needed.
+// inviteOrgMember is a mutation (added after the initial read-only build,
+// see CLAUDE.md's decisions log), so it goes through
+// app/api/admin/orgs/[id]/invite/route.ts instead, same reasoning as
+// createRule/updateRule further up.
 
 export interface AdminOrgOut {
   id: string;
@@ -588,6 +597,25 @@ export async function getAdminOrgMembers(orgId: string): Promise<AdminOrgMembers
   }
   if (!response.ok) {
     throw new BackendError(response.status, `Failed to load organization members (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function inviteOrgMember(orgId: string, email: string, role: TeamRole): Promise<PendingInviteOut> {
+  const response = await authorizedFetch(`/admin/orgs/${orgId}/invite`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, role }),
+  });
+  if (response.status === 404) {
+    throw new BackendError(404, "Organization not found");
+  }
+  if (!response.ok) {
+    if (response.status === 409) {
+      const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+      throw new BackendError(409, body?.detail ?? "This email has already been invited or is already a member.");
+    }
+    throw new BackendError(response.status, `Failed to invite member (${response.status})`);
   }
   return response.json();
 }

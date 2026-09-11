@@ -258,10 +258,12 @@ rationale lives in the referenced code's own comments.
   shape `GET /settings` already returns, scoped to any org instead of
   the caller's own). `MeOut.is_platform_admin` drives the dashboard's
   "Organizations" nav item (`components/sidebar.tsx`) and its two pages
-  (`app/(dashboard)/admin/orgs/**`) -- read-only (no invite/role-toggle
-  controls, unlike Settings' own Team tab): a platform admin looks,
-  doesn't manage another org's team on its behalf. No self-serve grant
-  path, as designed -- `platform_admins` rows are added manually via SQL
+  (`app/(dashboard)/admin/orgs/**`) -- built read-only at first (no
+  invite/role-toggle controls at all, unlike Settings' own Team tab); an
+  invite capability was added shortly after, see the dedicated entry
+  below -- role-toggle and cancel-invite are still deliberately absent
+  here. No self-serve grant path, as designed -- `platform_admins` rows
+  are added manually via SQL
   (see `DEPLOYMENT.md`), same pattern as the original "create an org"
   workaround earlier in this project's history. No SDK changes --
   confirmed unaffected, exactly as anticipated: the SDK only ever
@@ -269,3 +271,45 @@ rationale lives in the referenced code's own comments.
   (Section 1 schema, Section 4.6, Section 6 route table) and
   docs/04-ui-ux-design.md (Section 2 IA diagram, new Section 3.7)
   updated alongside this, per this file's own Conventions section.
+- **Settings → Team management was never actually restricted to Admins.**
+  Caught during manual verification of the Super Admin rollout above: a
+  Member could invite teammates, cancel a pending invite, and change any
+  member's role -- including promoting themselves to Admin -- because
+  `app/routers/settings.py`'s `invite_team_member`, `cancel_invite`, and
+  `update_team_member_role` never checked `UserAuth.role`, and
+  `components/settings/team-section.tsx` rendered the same controls for
+  every viewer regardless of role. docs/04-ui-ux-design.md Section 3.6's
+  "no granular permissions needed at MVP" was about the *number* of
+  levels (just Admin/Member), not about Member having Admin's powers --
+  clarified there now. Fixed: a new `_require_admin(auth)` guard (403 if
+  `auth.role != "admin"`) on all three mutation endpoints -- the real
+  gate. `GET /settings` also grows a `your_role` field (the caller's own
+  `UserAuth.role`, already resolved by `verify_jwt` -- no extra query) so
+  the dashboard can render read-only for a Member: no invite form, roles
+  shown as plain text instead of a toggle button, no cancel-invite
+  button. That UI hiding is a convenience only, never the actual
+  security boundary -- confirmed by testing the backend endpoints
+  directly with a Member's role, not just checking what the UI shows.
+- **Organizations detail page (Super Admin) can now invite a member into
+  any org.** The initial build was deliberately read-only end to end
+  ("a platform admin looks, doesn't manage another org's team on its
+  behalf"); real usage surfaced a genuine gap that read-only couldn't
+  cover -- onboarding a client org's first user without a platform admin
+  needing to already be a member of that org to invite anyone. Narrow
+  addition, not a reversal of the read-only design: role-toggle and
+  cancel-invite are still absent from this page -- an org's own admins
+  keep those, from their normal Settings -> Team, over invites this page
+  creates (same `org_invites` row, same table, fully visible and
+  cancellable there). New `POST /admin/orgs/{org_id}/invite`
+  (`app/routers/admin.py`'s `invite_org_member`, `verify_platform_admin`
+  the only guard, org existence checked first -- 404 if not found)
+  shares its conflict/insert logic with Settings' own invite endpoint via
+  a new `app/invites.py`'s `create_pending_invite(supabase, org_id,
+  email, role)`, extracted out of `app/routers/settings.py`'s
+  `invite_team_member` rather than duplicated. Dashboard:
+  `components/admin/org-members-panel.tsx` gained an invite form,
+  submitting to a new `app/api/admin/orgs/[id]/invite/route.ts` Route
+  Handler via plain browser `fetch` -- not `lib/backend.ts`'s
+  `inviteOrgMember` directly, which wraps `authorizedFetch` and needs
+  the server-only Supabase client; `inviteOrgMember` is called only from
+  inside that Route Handler, same pattern as `createRule`/`updateRule`.

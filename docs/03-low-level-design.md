@@ -280,24 +280,25 @@ this section is a summary, not a duplicate of that detail:
 | `GET /guardrail-activity` | Supabase JWT | Paginated Activity Log tab (Section 6, Guardrail Rules page). |
 | `PATCH /rules/{id}` | Supabase JWT | Edits an existing rule (name/pattern/action/enabled) — rule creation is `POST /rules`, implied but not spelled out above. |
 | `POST /rules/starter` | Supabase JWT | One-click enable of the pre-built starter rule set (docs/04-ui-ux-design.md Section 3.5). |
-| `GET /settings`, `POST /settings/api-key/regenerate`, `PUT /settings/slack-webhook`, `POST /settings/slack-webhook/test`, `POST /settings/team/invite`, `DELETE /settings/team/invites/{id}`, `PATCH /settings/team/{id}` | Supabase JWT | The full Settings page (Section 6): API key display/regenerate, Slack webhook config/test, team invite/cancel/role management. |
+| `GET /settings`, `POST /settings/api-key/regenerate`, `PUT /settings/slack-webhook`, `POST /settings/slack-webhook/test`, `POST /settings/team/invite`, `DELETE /settings/team/invites/{id}`, `PATCH /settings/team/{id}` | Supabase JWT | The full Settings page (Section 6): API key display/regenerate, Slack webhook config/test, team invite/cancel/role management. The three team-management mutations (`POST /settings/team/invite`, `DELETE /settings/team/invites/{id}`, `PATCH /settings/team/{id}`) additionally require the caller's `org_members.role` to be `'admin'` (`app/routers/settings.py`'s `_require_admin`, added as a bug fix -- see CLAUDE.md's decisions log) -- a Member can view the Team tab but not invite, cancel an invite, or change any role. `GET /settings`'s response includes `your_role` for the dashboard to render accordingly. |
 | `GET /rules` | **Either** API key or Supabase JWT | Dual-purpose: the SDK's local rule cache fetch (Section 3.2) and the dashboard's Rules page read the same path, dispatched by whichever credential is presented — see `app/auth.py`'s `verify_api_key_or_jwt`. Always returns all rules including disabled ones; the SDK's local matcher filters `enabled` client-side. |
 
 ### 4.6 Super Admin endpoints (added during implementation)
 
 Closes the gap flagged in CLAUDE.md's "Planned, not yet built": a
 platform-level operator, separate from each org's own admin/member role,
-who can see every org and every org's users. Both endpoints require
+who can see every org and every org's users. All three endpoints require
 `app/auth.py`'s `verify_platform_admin` — decode the Supabase JWT, then
 check membership in the new `platform_admins` table (Section 1), 403 if
-absent — and deliberately query across every org with no `org_id` filter,
-same app-layer-guard approach as every other endpoint here (Section 7:
-no Postgres RLS yet).
+absent — and deliberately accept any `org_id`/query across every org with
+no restriction to the caller's own, same app-layer-guard approach as
+every other endpoint here (Section 7: no Postgres RLS yet).
 
 | Endpoint | Auth | Purpose |
 |---|---|---|
 | `GET /admin/orgs` | Supabase JWT + `platform_admins` row | Every org on the platform, with its member count. Powers the "Organizations" screen's list view (docs/04-ui-ux-design.md). |
 | `GET /admin/orgs/{org_id}/members` | Supabase JWT + `platform_admins` row | The requested org's team and pending invites (same shape as `GET /settings`'s team/pending_invites, scoped to any org rather than the caller's own). 404 if the org doesn't exist. |
+| `POST /admin/orgs/{org_id}/invite` | Supabase JWT + `platform_admins` row | Added after the initial read-only build (see CLAUDE.md's decisions log): lets a Super Admin invite a new member into any org. Shares its conflict/insert logic with `POST /settings/team/invite` via `app/invites.py`'s `create_pending_invite`. 404 if the org doesn't exist; otherwise the same 409s as the Settings version (already a member / already invited). Deliberately narrow -- no equivalent cross-org role-change or cancel-invite endpoint; those stay with each org's own admins. |
 
 `GET /me`'s response also grows an `is_platform_admin: bool` field
 (independent of `has_org`/`org_id`/`role` — a platform admin has no

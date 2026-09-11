@@ -24,7 +24,11 @@ export default async function SettingsPage() {
       <ApiKeySection />
       <FailModeSection initialFailMode={settings.fail_mode} />
       <SlackSection initialWebhookUrl={settings.slack_webhook_url} />
-      <TeamSection team={settings.team} pendingInvites={settings.pending_invites} />
+      <TeamSection
+        team={settings.team}
+        pendingInvites={settings.pending_invites}
+        isAdmin={settings.your_role === "admin"}
+      />
     </div>
   );
 }

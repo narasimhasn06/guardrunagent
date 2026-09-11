@@ -225,12 +225,12 @@ describe("FailModeSection", () => {
 
 describe("TeamSection", () => {
   it("shows a placeholder when there are no members or invites", () => {
-    render(<TeamSection team={[]} pendingInvites={[]} />);
+    render(<TeamSection team={[]} pendingInvites={[]} isAdmin />);
     expect(screen.getByText(/no team members yet/i)).toBeInTheDocument();
   });
 
   it("lists members with their current role and pending invites marked as invited", () => {
-    render(<TeamSection team={[makeMember()]} pendingInvites={[makeInvite()]} />);
+    render(<TeamSection team={[makeMember()]} pendingInvites={[makeInvite()]} isAdmin />);
     expect(screen.getByText("jane@example.com")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /jane@example.com's role/i })).toHaveTextContent("Admin");
     expect(screen.getByText("new.hire@example.com")).toBeInTheDocument();
@@ -242,7 +242,7 @@ describe("TeamSection", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => makeMember({ role: "member" }) });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<TeamSection team={[makeMember({ role: "admin" })]} pendingInvites={[]} />);
+    render(<TeamSection team={[makeMember({ role: "admin" })]} pendingInvites={[]} isAdmin />);
     await user.click(screen.getByRole("button", { name: /jane@example.com's role/i }));
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -257,7 +257,7 @@ describe("TeamSection", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<TeamSection team={[]} pendingInvites={[makeInvite()]} />);
+    render(<TeamSection team={[]} pendingInvites={[makeInvite()]} isAdmin />);
     await user.click(screen.getByRole("button", { name: "Cancel invite" }));
 
     expect(fetchMock).toHaveBeenCalledWith("/api/settings/team/invites/eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", {
@@ -271,7 +271,7 @@ describe("TeamSection", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => makeInvite() });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<TeamSection team={[]} pendingInvites={[]} />);
+    render(<TeamSection team={[]} pendingInvites={[]} isAdmin />);
     await user.type(screen.getByLabelText("Invite by email"), "teammate@example.com");
     await user.selectOptions(screen.getByLabelText("Role"), "admin");
     await user.click(screen.getByRole("button", { name: "Invite" }));
@@ -293,10 +293,36 @@ describe("TeamSection", () => {
       vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: "This email has already been invited" }) })
     );
 
-    render(<TeamSection team={[]} pendingInvites={[]} />);
+    render(<TeamSection team={[]} pendingInvites={[]} isAdmin />);
     await user.type(screen.getByLabelText("Invite by email"), "dup@example.com");
     await user.click(screen.getByRole("button", { name: "Invite" }));
 
     await waitFor(() => expect(screen.getByText("This email has already been invited")).toBeInTheDocument());
+  });
+
+  // Bug fix: these controls used to render for every org member
+  // regardless of role -- a Member could invite teammates or promote
+  // themselves to Admin. isAdmin=false gives a read-only view; the real
+  // gate is the backend's own role check (see
+  // backend/app/routers/settings.py's _require_admin).
+  describe("as a non-admin (Member)", () => {
+    it("shows roles as plain text, not a toggle button", () => {
+      render(<TeamSection team={[makeMember()]} pendingInvites={[]} isAdmin={false} />);
+      expect(screen.getByText("jane@example.com")).toBeInTheDocument();
+      expect(screen.getByText("Admin")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /jane@example.com's role/i })).not.toBeInTheDocument();
+    });
+
+    it("hides the cancel-invite button on pending invites", () => {
+      render(<TeamSection team={[]} pendingInvites={[makeInvite()]} isAdmin={false} />);
+      expect(screen.getByText(/new\.hire@example\.com/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Cancel invite" })).not.toBeInTheDocument();
+    });
+
+    it("hides the invite-by-email form entirely", () => {
+      render(<TeamSection team={[]} pendingInvites={[]} isAdmin={false} />);
+      expect(screen.queryByLabelText("Invite by email")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Invite" })).not.toBeInTheDocument();
+    });
   });
 });

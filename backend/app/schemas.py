@@ -285,17 +285,30 @@ class SettingsOut(BaseModel):
     fail_mode: Literal["open", "closed"]
     team: list[TeamMemberOut]
     pending_invites: list[PendingInviteOut]
+    # The caller's own role in this org (UserAuth.role) -- lets the
+    # dashboard hide team-management controls (invite, role toggle,
+    # cancel invite) from a Member. Added as a bug fix: those mutation
+    # endpoints below were never actually role-gated, so any Member could
+    # invite teammates or promote themselves to Admin -- caught during
+    # manual verification of the Super Admin rollout. The read itself
+    # (this whole response) stays available to any org member; only the
+    # mutations are now admin-only, both here (UI) and, authoritatively,
+    # on each mutation endpoint's own check below.
+    your_role: Literal["admin", "member"]
 
 
-# ---- GET /admin/orgs, GET /admin/orgs/:id/members -------------------------
+# ---- GET /admin/orgs, GET /admin/orgs/:id/members, POST /admin/orgs/:id/invite ----
 # Super Admin role -- see CLAUDE.md's "Planned, not yet built" entry this
 # closes and app/routers/admin.py. New scope, not in the original docs;
 # see docs/03-low-level-design.md Section 4.6 and docs/04-ui-ux-design.md's
-# "Organizations" screen. Both endpoints require verify_platform_admin
-# (app/auth.py) and deliberately query across every org, with no org_id
-# filter -- the guard is the dependency itself, not a query scope.
-# Reuses TeamMemberOut/PendingInviteOut above -- an org's member/invite
-# list looks the same whether an org admin or a platform admin is asking.
+# "Organizations" screen. All three endpoints require verify_platform_admin
+# (app/auth.py) and deliberately accept any org_id, with no restriction to
+# the caller's own -- the guard is the dependency itself, not a query
+# scope. Reuses TeamMemberOut/PendingInviteOut above -- an org's
+# member/invite list looks the same whether an org admin or a platform
+# admin is asking. The invite endpoint reuses TeamInviteIn too, and
+# PendingInviteOut as its response -- an invite is an invite regardless
+# of who created it.
 
 
 class AdminOrgOut(BaseModel):
