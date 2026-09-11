@@ -45,6 +45,26 @@ its own Supabase project.
   "Before the first deploy" step 1 before believing a project is current
   -- including before applying any *new* migration to either one going
   forward.
+- **New migration pending on both projects**:
+  `...0013_add_platform_admins.sql` (the Super Admin role -- see
+  CLAUDE.md's decisions log) has not yet been run against staging or
+  production as of this PR. Same "run it, then verify" procedure as
+  `...0012` (fail_mode) below applies: run the migration, then confirm
+  with
+  ```sql
+  select column_name from information_schema.columns where table_name = 'platform_admins';
+  ```
+  **The table starts empty.** The Super Admin feature has no self-serve
+  way to grant itself, by design (see CLAUDE.md's decisions log and
+  `app/auth.py`'s `verify_platform_admin`) -- after migrating each
+  project, manually insert whoever should be a platform admin:
+  ```sql
+  insert into platform_admins (auth_user_id) values ('<their auth.users id>');
+  ```
+  Find that id under the Supabase dashboard's **Authentication -> Users**
+  for that project. Until this insert happens on a given project, nobody
+  can reach `/admin/orgs` there even with this PR deployed -- `GET /me`
+  will report `is_platform_admin: false` for everyone.
 - **Production is live**: `guardrunagent-backend-production` and
   `guardrunagent-dashboard-production` are deployed as a manual-promote
   Railway environment alongside staging (see "Deploying production via

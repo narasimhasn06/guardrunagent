@@ -34,7 +34,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="dashboard-shell">
-      <Sidebar userEmail={user.email} />
+      <Sidebar userEmail={user.email} isPlatformAdmin={me.is_platform_admin} />
       <main className="dashboard-main">{children}</main>
     </div>
   );

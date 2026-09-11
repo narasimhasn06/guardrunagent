@@ -54,3 +54,19 @@ it("signs out and redirects to /login on click", async () => {
   expect(pushMock).toHaveBeenCalledWith("/login");
   expect(refreshMock).toHaveBeenCalledTimes(1);
 });
+
+/**
+ * "Organizations" nav item (Super Admin role) -- shown only for a
+ * platform admin, same conditional-render pattern as the "create your
+ * organization" screen keyed off has_org. See CLAUDE.md's "Planned, not
+ * yet built" entry this closes.
+ */
+it("hides the Organizations nav item by default", () => {
+  render(<Sidebar userEmail="jane@example.com" />);
+  expect(screen.queryByRole("link", { name: "Organizations" })).not.toBeInTheDocument();
+});
+
+it("shows the Organizations nav item for a platform admin", () => {
+  render(<Sidebar userEmail="admin@example.com" isPlatformAdmin />);
+  expect(screen.getByRole("link", { name: "Organizations" })).toHaveAttribute("href", "/admin/orgs");
+});

@@ -238,22 +238,34 @@ rationale lives in the referenced code's own comments.
   `router.push`), so this stayed invisible until the first real Google
   OAuth (or password-reset) attempt against the deployed staging site.
 
-## Planned, not yet built
-
-- **Super Admin role** -- a platform-level operator, separate from each
-  org's own admin/member roles, who can see every org and every user
-  across the whole product (not just their own org). Requested to
-  support onboarding/managing multiple client orgs. Design agreed but
-  not implemented: a new `platform_admins` table (`auth_user_id` only --
-  deliberately *not* a value inside `org_members.role`, so it can never
-  be exposed in an org's own team-invite dropdown); new `GET
-  /admin/orgs` + `GET /admin/orgs/{id}/members` endpoints gated by a
-  `verify_platform_admin` dependency (same shape as `verify_jwt`); a
-  dashboard nav item shown only when `GET /me` reports platform-admin
-  status; membership in `platform_admins` granted manually via SQL, no
-  self-serve invite UI -- deliberate, given how sensitive cross-org
-  visibility is. Needs docs/03-low-level-design.md (schema) and
-  docs/04-ui-ux-design.md (new screen) updated first, since this is new
-  scope not in the original docs. No SDK changes needed -- the SDK only
-  ever authenticates as one org via its API key; it has no concept of
-  "admin," "org," or cross-org anything.
+- **Super Admin role, built** -- closes the entry formerly here under
+  "Planned, not yet built." A platform-level operator, separate from
+  each org's own admin/member role (`org_members.role`), who can see
+  every org and every org's users across the whole product. Built
+  exactly as designed: a new `platform_admins` table (`auth_user_id`
+  primary key, no `org_id` at all -- deliberately *not* a value inside
+  `org_members.role`, so it stays unreachable from an org's own
+  team-invite dropdown, `TeamInviteIn.role`, which stays untouched);
+  `app/auth.py`'s `verify_platform_admin` (same shape as `verify_jwt` --
+  decode the JWT, then check table membership, 403 if absent), backed by
+  a shared `is_platform_admin(supabase, auth_user_id)` helper so `GET
+  /me` can report status without needing a second, differently-shaped
+  auth path; `app/routers/admin.py`'s `GET /admin/orgs` (every org +
+  member count, computed in Python from a single unfiltered
+  `org_members` select rather than a new Postgres aggregate function --
+  low-traffic admin-only page, not worth a dedicated RPC) and `GET
+  /admin/orgs/{id}/members` (one org's team + pending invites, same
+  shape `GET /settings` already returns, scoped to any org instead of
+  the caller's own). `MeOut.is_platform_admin` drives the dashboard's
+  "Organizations" nav item (`components/sidebar.tsx`) and its two pages
+  (`app/(dashboard)/admin/orgs/**`) -- read-only (no invite/role-toggle
+  controls, unlike Settings' own Team tab): a platform admin looks,
+  doesn't manage another org's team on its behalf. No self-serve grant
+  path, as designed -- `platform_admins` rows are added manually via SQL
+  (see `DEPLOYMENT.md`), same pattern as the original "create an org"
+  workaround earlier in this project's history. No SDK changes --
+  confirmed unaffected, exactly as anticipated: the SDK only ever
+  authenticates as one org via its API key. docs/03-low-level-design.md
+  (Section 1 schema, Section 4.6, Section 6 route table) and
+  docs/04-ui-ux-design.md (Section 2 IA diagram, new Section 3.7)
+  updated alongside this, per this file's own Conventions section.

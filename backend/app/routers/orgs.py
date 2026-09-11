@@ -5,7 +5,7 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api_keys import hash_api_key
-from app.auth import JwtIdentity, resolve_or_join_org, verify_jwt_identity
+from app.auth import JwtIdentity, is_platform_admin, resolve_or_join_org, verify_jwt_identity
 from app.db import get_supabase, maybe_single_result
 from app.schemas import MeOut, OrgCreateIn, OrgCreateOut
 
@@ -21,15 +21,17 @@ def get_me(identity: JwtIdentity = Depends(verify_jwt_identity)) -> MeOut:
     """
     supabase = get_supabase()
     member_data = resolve_or_join_org(supabase, str(identity.auth_user_id), identity.email)
+    platform_admin = is_platform_admin(supabase, str(identity.auth_user_id))
 
     if not member_data:
-        return MeOut(email=identity.email, has_org=False)
+        return MeOut(email=identity.email, has_org=False, is_platform_admin=platform_admin)
 
     return MeOut(
         email=identity.email,
         has_org=True,
         org_id=member_data["org_id"],
         role=member_data["role"],
+        is_platform_admin=platform_admin,
     )
 
 

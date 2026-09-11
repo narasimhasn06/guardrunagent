@@ -216,6 +216,53 @@ def verify_jwt(authorization: str | None = Header(default=None)) -> UserAuth:
     )
 
 
+class PlatformAdminAuth(BaseModel):
+    """Resolved from a Supabase JWT belonging to a row in `platform_admins`
+    -- a platform-level operator, separate from any org's own admin/member
+    role (UserAuth.role), who can see every org. See CLAUDE.md's "Planned,
+    not yet built" entry this closes and app/routers/admin.py.
+    """
+
+    auth_user_id: UUID
+    email: str
+
+
+def is_platform_admin(supabase, auth_user_id: str) -> bool:
+    """Shared by verify_platform_admin (below) and GET /me
+    (app/routers/orgs.py, which needs to report `is_platform_admin` to the
+    dashboard regardless of org membership -- a platform admin has no
+    special org_members row, so MeOut can't derive this from
+    resolve_or_join_org).
+    """
+    row = maybe_single_result(
+        supabase.table("platform_admins").select("auth_user_id").eq("auth_user_id", auth_user_id).maybe_single()
+    )
+    return bool(row.data)
+
+
+def verify_platform_admin(authorization: str | None = Header(default=None)) -> PlatformAdminAuth:
+    """Auth for the cross-org /admin/* endpoints -- same shape as
+    verify_jwt: decode the JWT, then check membership in a table, 403 if
+    absent. Checks `platform_admins` instead of `org_members`, and grants
+    no org_id at all -- these endpoints deliberately query across all
+    orgs with no org_id filter, guarded here at the FastAPI dependency
+    layer rather than by Postgres RLS, consistent with how org-scoped
+    endpoints are already guarded (docs/05-architecture-document.md
+    Section 7: no RLS yet, app-layer auth instead).
+
+    There's no self-serve way to become a platform admin -- rows in
+    `platform_admins` are added manually via SQL (see DEPLOYMENT.md),
+    deliberately, given how sensitive cross-org visibility is.
+    """
+    identity = verify_jwt_identity(authorization=authorization)
+    supabase = get_supabase()
+
+    if not is_platform_admin(supabase, str(identity.auth_user_id)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a platform admin")
+
+    return PlatformAdminAuth(auth_user_id=identity.auth_user_id, email=identity.email)
+
+
 class RulesAuth(BaseModel):
     """Resolved org_id from either credential — see verify_api_key_or_jwt."""
 

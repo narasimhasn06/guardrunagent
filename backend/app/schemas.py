@@ -233,6 +233,12 @@ class MeOut(BaseModel):
     has_org: bool
     org_id: UUID | None = None
     role: Literal["admin", "member"] | None = None
+    # Platform-level operator status (platform_admins table), independent
+    # of org_members -- a platform admin doesn't need an org membership at
+    # all. Drives the dashboard's "Organizations" nav item -- see
+    # CLAUDE.md's "Planned, not yet built" entry this closes and
+    # app/routers/admin.py.
+    is_platform_admin: bool = False
 
 
 class OrgCreateIn(BaseModel):
@@ -277,6 +283,35 @@ class SettingsOut(BaseModel):
     slack_webhook_configured: bool
     slack_webhook_url: str | None
     fail_mode: Literal["open", "closed"]
+    team: list[TeamMemberOut]
+    pending_invites: list[PendingInviteOut]
+
+
+# ---- GET /admin/orgs, GET /admin/orgs/:id/members -------------------------
+# Super Admin role -- see CLAUDE.md's "Planned, not yet built" entry this
+# closes and app/routers/admin.py. New scope, not in the original docs;
+# see docs/03-low-level-design.md Section 4.6 and docs/04-ui-ux-design.md's
+# "Organizations" screen. Both endpoints require verify_platform_admin
+# (app/auth.py) and deliberately query across every org, with no org_id
+# filter -- the guard is the dependency itself, not a query scope.
+# Reuses TeamMemberOut/PendingInviteOut above -- an org's member/invite
+# list looks the same whether an org admin or a platform admin is asking.
+
+
+class AdminOrgOut(BaseModel):
+    id: UUID
+    name: str
+    created_at: datetime
+    member_count: int
+
+
+class AdminOrgsOut(BaseModel):
+    orgs: list[AdminOrgOut]
+
+
+class AdminOrgMembersOut(BaseModel):
+    org_id: UUID
+    org_name: str
     team: list[TeamMemberOut]
     pending_invites: list[PendingInviteOut]
 

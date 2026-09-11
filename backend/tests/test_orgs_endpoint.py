@@ -30,14 +30,43 @@ class TestGetMe:
 
     def test_no_org_and_no_invite_reports_has_org_false(self, client):
         _override_identity()
-        fake = FakeSupabase(table_data={"org_members": {"select": None}, "org_invites": {"select": None}})
+        fake = FakeSupabase(
+            table_data={"org_members": {"select": None}, "org_invites": {"select": None}, "platform_admins": None}
+        )
 
         with patch("app.routers.orgs.get_supabase", return_value=fake):
             response = client.get("/me")
 
         assert response.status_code == 200
         body = response.json()
-        assert body == {"email": "jane@example.com", "has_org": False, "org_id": None, "role": None}
+        assert body == {
+            "email": "jane@example.com",
+            "has_org": False,
+            "org_id": None,
+            "role": None,
+            "is_platform_admin": False,
+        }
+
+    def test_platform_admin_with_no_org_is_reported(self, client):
+        # A platform admin doesn't need an org membership at all -- see
+        # app/auth.py's is_platform_admin and CLAUDE.md's "Planned, not
+        # yet built" entry this closes.
+        _override_identity(email="admin@example.com")
+        fake = FakeSupabase(
+            table_data={
+                "org_members": {"select": None},
+                "org_invites": {"select": None},
+                "platform_admins": {"auth_user_id": AUTH_USER_ID},
+            }
+        )
+
+        with patch("app.routers.orgs.get_supabase", return_value=fake):
+            response = client.get("/me")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["has_org"] is False
+        assert body["is_platform_admin"] is True
 
     def test_existing_membership_reports_has_org_true(self, client):
         _override_identity()

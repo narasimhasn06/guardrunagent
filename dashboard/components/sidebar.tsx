@@ -17,12 +17,21 @@ const NAV_ITEMS = [
   { href: "/settings", label: "Settings" },
 ];
 
+// Shown only for a platform admin (MeOut.is_platform_admin) -- the Super
+// Admin role's cross-org "Organizations" screen. Same conditional-render
+// pattern as the "create your organization" screen keyed off has_org
+// (app/(dashboard)/layout.tsx): a plain nav-visibility gate, not the real
+// access control (the backend's verify_platform_admin is that -- see
+// app/auth.py).
+const ADMIN_NAV_ITEM = { href: "/admin/orgs", label: "Organizations" };
+
 // docs/04-ui-ux-design.md never specifies where sign-out lives -- the
 // sidebar footer is the conventional spot and keeps it reachable from
 // every page without adding a new nav item.
-export function Sidebar({ userEmail }: { userEmail?: string }) {
+export function Sidebar({ userEmail, isPlatformAdmin = false }: { userEmail?: string; isPlatformAdmin?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
+  const navItems = isPlatformAdmin ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS;
 
   async function handleSignOut() {
     const supabase = createClient();
@@ -35,7 +44,7 @@ export function Sidebar({ userEmail }: { userEmail?: string }) {
     <nav className="sidebar" aria-label="Primary">
       <div className="sidebar-brand">GuardrunAgent</div>
       <ul className="sidebar-nav">
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
           return (
             <li key={item.href}>

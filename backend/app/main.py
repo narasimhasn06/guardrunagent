@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from app.routers import (
+    admin,
     cost_summary,
     dashboard_summary,
     events,
@@ -23,6 +24,7 @@ app.include_router(dashboard_summary.router)
 app.include_router(guardrail_activity.router)
 app.include_router(settings.router)
 app.include_router(orgs.router)
+app.include_router(admin.router)
 
 
 @app.get("/health")

@@ -51,6 +51,7 @@ export interface MeOut {
   has_org: boolean;
   org_id: string | null;
   role: "admin" | "member" | null;
+  is_platform_admin: boolean;
 }
 
 export async function getMe(): Promise<MeOut> {
@@ -542,6 +543,51 @@ export async function updateTeamMemberRole(memberId: string, role: TeamRole): Pr
   });
   if (!response.ok) {
     throw new BackendError(response.status, `Failed to update team member role (${response.status})`);
+  }
+  return response.json();
+}
+
+// ---- GET /admin/orgs, GET /admin/orgs/:id/members -------------------------
+// Super Admin role -- a platform-level operator, separate from each org's
+// own admin/member roles, who can see every org (MeOut.is_platform_admin
+// drives the "Organizations" nav item, see components/sidebar.tsx). Both
+// calls are reads only, from Server Components (app/(dashboard)/admin/**),
+// same as getSessionDetail above -- there's no mutation on this screen, so
+// no Route Handler indirection is needed.
+
+export interface AdminOrgOut {
+  id: string;
+  name: string;
+  created_at: string;
+  member_count: number;
+}
+
+export interface AdminOrgsOut {
+  orgs: AdminOrgOut[];
+}
+
+export async function getAdminOrgs(): Promise<AdminOrgsOut> {
+  const response = await authorizedFetch("/admin/orgs");
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to load organizations (${response.status})`);
+  }
+  return response.json();
+}
+
+export interface AdminOrgMembersOut {
+  org_id: string;
+  org_name: string;
+  team: TeamMemberOut[];
+  pending_invites: PendingInviteOut[];
+}
+
+export async function getAdminOrgMembers(orgId: string): Promise<AdminOrgMembersOut> {
+  const response = await authorizedFetch(`/admin/orgs/${orgId}/members`);
+  if (response.status === 404) {
+    throw new BackendError(404, "Organization not found");
+  }
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to load organization members (${response.status})`);
   }
   return response.json();
 }

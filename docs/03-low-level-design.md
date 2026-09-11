@@ -90,6 +90,17 @@ CREATE TABLE org_invites (
   role TEXT NOT NULL DEFAULT 'member',  -- 'admin' | 'member', mirrors org_members.role
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Super Admin role, added during implementation (see note below) -- a
+-- platform-level operator, separate from each org's own admin/member
+-- role (org_members.role above), who can see every org and every org's
+-- users. Deliberately its own table, not a value inside
+-- org_members.role, and deliberately not org-scoped at all: membership
+-- here isn't granted by, or visible to, any org.
+CREATE TABLE platform_admins (
+  auth_user_id UUID PRIMARY KEY,  -- references auth.users(id), managed by Supabase Auth
+  created_at TIMESTAMPTZ DEFAULT now()
+);
 ```
 
 **Schema additions beyond the original design (settled during implementation):**
@@ -100,7 +111,11 @@ asynchronously afterward — so it was never usable for the Activity Log's
 "session link"). `org_invites` holds a pending Team invite (Settings →
 Team → invite-by-email) until the invited person's first login, at which
 point `app/auth.py`'s `verify_jwt` consumes it and creates their
-`org_members` row. See `CLAUDE.md`'s decisions log for full rationale.
+`org_members` row. `platform_admins` backs the Super Admin role (see
+Section 4.6 and CLAUDE.md's "Planned, not yet built" entry this closes) --
+a platform-level operator who can see every org, granted with no
+self-serve path (rows are added manually via SQL, see `DEPLOYMENT.md`).
+See `CLAUDE.md`'s decisions log for full rationale.
 
 **Note on the auth split:** `orgs.api_key_hash` authenticates the SDK (machine-to-machine). `org_members.auth_user_id` links a dashboard user (human, authenticated by Supabase Auth) to an org and a role. These two auth paths never cross.
 
@@ -268,6 +283,33 @@ this section is a summary, not a duplicate of that detail:
 | `GET /settings`, `POST /settings/api-key/regenerate`, `PUT /settings/slack-webhook`, `POST /settings/slack-webhook/test`, `POST /settings/team/invite`, `DELETE /settings/team/invites/{id}`, `PATCH /settings/team/{id}` | Supabase JWT | The full Settings page (Section 6): API key display/regenerate, Slack webhook config/test, team invite/cancel/role management. |
 | `GET /rules` | **Either** API key or Supabase JWT | Dual-purpose: the SDK's local rule cache fetch (Section 3.2) and the dashboard's Rules page read the same path, dispatched by whichever credential is presented — see `app/auth.py`'s `verify_api_key_or_jwt`. Always returns all rules including disabled ones; the SDK's local matcher filters `enabled` client-side. |
 
+### 4.6 Super Admin endpoints (added during implementation)
+
+Closes the gap flagged in CLAUDE.md's "Planned, not yet built": a
+platform-level operator, separate from each org's own admin/member role,
+who can see every org and every org's users. Both endpoints require
+`app/auth.py`'s `verify_platform_admin` — decode the Supabase JWT, then
+check membership in the new `platform_admins` table (Section 1), 403 if
+absent — and deliberately query across every org with no `org_id` filter,
+same app-layer-guard approach as every other endpoint here (Section 7:
+no Postgres RLS yet).
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `GET /admin/orgs` | Supabase JWT + `platform_admins` row | Every org on the platform, with its member count. Powers the "Organizations" screen's list view (docs/04-ui-ux-design.md). |
+| `GET /admin/orgs/{org_id}/members` | Supabase JWT + `platform_admins` row | The requested org's team and pending invites (same shape as `GET /settings`'s team/pending_invites, scoped to any org rather than the caller's own). 404 if the org doesn't exist. |
+
+`GET /me`'s response also grows an `is_platform_admin: bool` field
+(independent of `has_org`/`org_id`/`role` — a platform admin has no
+special org membership) so the dashboard knows whether to show the
+"Organizations" nav item at all.
+
+There is no endpoint to grant platform-admin status — `platform_admins`
+rows are added manually via SQL (Supabase SQL Editor), the same
+established pattern as the very first "create an org" workaround earlier
+in this project's history. Deliberate, given how sensitive cross-org
+visibility is; see `DEPLOYMENT.md`.
+
 ## 5. Alerting Service
 
 - Simple internal function, not a separate microservice at MVP scale
@@ -286,6 +328,7 @@ this section is a summary, not a duplicate of that detail:
 | `/cost` | Cost dashboard, grouped by day/project/agent, simple bar/line charts | `GET /cost-summary` |
 | `/rules` | Guardrail rule config (CRUD) + recent activity log | `GET/POST /rules`, `GET /guardrail-activity` |
 | `/settings` | API key, Slack webhook config, team members | `GET/POST /settings/*` (Section 4.5) |
+| `/admin/orgs`, `/admin/orgs/[id]` | **Super Admin only** (`GET /me`'s `is_platform_admin`): every org on the platform, drilling into one org's team/pending invites | `GET /admin/orgs`, `GET /admin/orgs/{id}/members` (Section 4.6) |
 
 **Sign-out**, added during implementation: the sidebar footer (present on
 every page in the group above) shows the signed-in user's email and a
