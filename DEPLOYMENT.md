@@ -117,12 +117,80 @@ its own Supabase project.
    - Dashboard service's `NEXT_PUBLIC_BACKEND_URL` = the backend's
      domain, then **redeploy** -- `NEXT_PUBLIC_*` values are baked in at
      build time, so saving the variable alone doesn't apply it.
-7. For **production**, later: a new Railway **environment** inside the
-   same project (Railway's environments feature -- separate variable
-   sets and, per-environment, which branch/deploy trigger to use),
-   pointed at the second Supabase project once that exists. Set it to
-   deploy manually rather than on every push to `main`, matching
-   Section 5's "manual promote to production."
+7. **Production**: see "Deploying production via Railway" below.
+
+## Deploying production via Railway
+
+Do this once staging is stable and the second ("production") Supabase
+project exists and is fully migrated (see "Before the first deploy"
+step 1). Verified against Railway's current docs/support content
+(`docs.railway.com` itself isn't reachable from this session's network,
+but its content was confirmed via search-indexed copies and Railway
+Central Station threads) -- re-check against the real dashboard if
+anything below doesn't match what you see, since Railway's UI moves.
+
+1. In the same Railway **project** as staging, open the environment
+   switcher (top of the dashboard) and create a new environment named
+   `production`. This is Railway's own multi-environment feature --
+   each service gets an independent copy with its own variables and
+   deploy settings, inside the one project.
+2. Railway seeds the new environment by cloning staging's services and
+   their variable *names* (not always safe values to keep as-is). For
+   each service in the `production` environment:
+   - **backend**: open **Variables**, replace every value with the
+     **production** Supabase project's own credentials (from
+     `backend/.env.production.example`'s comments) --
+     `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`
+     (only if that project hasn't migrated to JWT Signing Keys -- see
+     `app/auth.py`), and a **freshly generated** `API_KEY_PEPPER`
+     (`openssl rand -hex 32` -- never reuse staging's). Leave
+     `DASHBOARD_URL` blank for now.
+   - **dashboard**: same idea with
+     `dashboard/.env.production.example` -- `NEXT_PUBLIC_SUPABASE_URL`,
+     `NEXT_PUBLIC_SUPABASE_ANON_KEY` from the production Supabase
+     project, `NODE_VERSION=22.20.0`, `NEXT_PUBLIC_BACKEND_URL` blank
+     for now.
+   - Confirm **Root Directory** carried over correctly (`backend` /
+     `dashboard`) and set **Region** the same as staging.
+3. Generate a domain for each service (**Settings > Networking >
+   Generate Domain**) if one wasn't cloned automatically, then go back
+   and fill in `DASHBOARD_URL` (backend) and `NEXT_PUBLIC_BACKEND_URL`
+   (dashboard) with each other's real production domain, same
+   two-sided-reference caveat as staging step 6 -- redeploy the
+   dashboard service afterward since `NEXT_PUBLIC_*` is baked in at
+   build time.
+4. **Make production deploy manually, not on every push to `main`**
+   (Section 5's "manual promote to production," and the reason
+   staging/production are different environments in the first place):
+   for each of the two production services, open **Settings > Deploy**
+   and **Disable** the autodeploy toggle. This keeps the GitHub
+   connection (so Railway still knows which commit is "latest") but
+   stops it from redeploying on every push. To promote a commit once
+   staging has verified it: **Cmd/Ctrl+K > Deploy Latest Commit** (or
+   the same action from the service's **Deployments** tab), against the
+   `production` environment.
+5. Confirm both services go healthy (`/health`, `/login`) the same way
+   as staging step 4, then do the "Before the first deploy" step 2/3
+   checks (Auth config, region) against the production Supabase project
+   specifically -- it's a separate project, so nothing about staging's
+   Auth setup carries over automatically:
+   - Supabase dashboard (production project) -> **Authentication ->
+     URL Configuration**: Site URL and Redirect URLs must point at the
+     **production dashboard's** real domain (from step 3), not
+     staging's or `localhost`.
+   - **Authentication -> Providers -> Google**: enable it and fill in
+     the same Google OAuth Client ID/Secret as staging (Google OAuth
+     clients aren't Supabase-project-scoped, so the same client can
+     serve both, or use a separate one if you'd rather isolate them).
+   - Google Cloud Console -> that OAuth client -> **Authorized redirect
+     URIs**: add the **production** Supabase project's own callback
+     URL, `https://<production-project-ref>.supabase.co/auth/v1/callback`
+     -- this is additive, don't remove staging's.
+6. Sign in against the production dashboard URL end-to-end (Google and
+   email/password) before calling it done -- this is exactly the class
+   of misconfiguration (wrong Site URL, missing redirect URI) that broke
+   staging's first Google sign-in attempt; see CLAUDE.md's decisions log
+   for what that looked like.
 
 ## Deploying via Render
 
@@ -156,19 +224,29 @@ its own Supabase project.
 
 ## How deploys actually happen
 
-- **Staging** (`autoDeploy: true` in `render.yaml`): every push to `main`
-  that passes CI auto-deploys to both staging services. This *is* the
-  "auto-deploy to staging on merge to main" behavior from Section 5 --
-  it's Render's own native git-push deploy, not something the GitHub
-  Actions workflow triggers.
+**On Railway (the active path):**
+- **Staging**: each service's autodeploy is left on (the default), so
+  every push to `main` that passes CI auto-deploys both staging
+  services. This *is* the "auto-deploy to staging on merge to main"
+  behavior from Section 5 -- Railway's own native git-push deploy, not
+  something the GitHub Actions workflow triggers.
+- **Production**: autodeploy is disabled on both production services
+  (see "Deploying production via Railway" step 4) -- deploys only
+  happen when someone manually promotes the latest commit from the
+  Railway dashboard. This is the "manual promote to production" step
+  from Section 5.
+
+**On Render (the kept-in-repo alternative, not currently used):**
+- **Staging** (`autoDeploy: true` in `render.yaml`): same auto-deploy-on-
+  push behavior as above, Render's native equivalent.
 - **Production** (`autoDeploy: false`): deploys only when someone
   manually triggers one from the Render dashboard (or `render deploy` via
-  Render's CLI), picking the commit to promote. This is the "manual
-  promote to production" step from Section 5.
-- `.github/workflows/ci.yml` only runs tests on PRs -- it's a gate, not a
-  deploy mechanism. A red PR can't merge to `main` and therefore can't
-  reach staging; nothing stops a human from promoting a bad commit to
-  production, since that step is manual by design.
+  Render's CLI), picking the commit to promote.
+
+**Either way**, `.github/workflows/ci.yml` only runs tests on PRs -- it's
+a gate, not a deploy mechanism. A red PR can't merge to `main` and
+therefore can't reach staging; nothing stops a human from promoting a
+bad commit to production, since that step is manual by design.
 
 ## Running the system tests against staging
 
