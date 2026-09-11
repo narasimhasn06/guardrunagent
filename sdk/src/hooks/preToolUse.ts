@@ -1,7 +1,7 @@
 import { loadConfig } from "../config";
 import { postJson } from "../httpClient";
 import { decidePreToolUse, type GuardrailCheckResult, type PreToolUseInput } from "../logic/preToolUseLogic";
-import { getCachedRules } from "../ruleCache";
+import { getCachedOrgConfig } from "../ruleCache";
 import { debugLog } from "../debugLog";
 import { readHookInput } from "./common";
 
@@ -15,10 +15,14 @@ async function main(): Promise<void> {
   try {
     const input = await readHookInput<PreToolUseInput>();
     const config = loadConfig();
+    const orgConfig = await getCachedOrgConfig(config);
+    // config.ts's local override (env var / config.json), when explicitly
+    // set, wins over the org-level fail_mode fetched with the rules.
+    const failMode = config.failModeOverride ?? orgConfig.failMode;
 
     const decision = await decidePreToolUse(input, {
-      config,
-      getRules: () => getCachedRules(config),
+      config: { failMode },
+      getRules: async () => orgConfig.rules,
       checkGuardrail: async (payload) => {
         const response = await postJson(config, "/guardrail-check", payload);
         if (!response.ok) throw new Error(`guardrail-check returned ${response.status}`);

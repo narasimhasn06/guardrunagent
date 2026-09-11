@@ -1078,6 +1078,12 @@ input:focus {
   width: 100%;
 }
 
+.fail-mode-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .role-toggle {
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);

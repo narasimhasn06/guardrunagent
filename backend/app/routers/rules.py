@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth import RulesAuth, UserAuth, verify_api_key_or_jwt, verify_jwt
-from app.db import get_supabase
+from app.db import get_supabase, maybe_single_result
 from app.schemas import RuleCreateIn, RuleOut, RulesOut, RuleUpdateIn
 from app.starter_rules import STARTER_RULES
 
@@ -14,6 +14,12 @@ router = APIRouter()
 
 @router.get("/rules", response_model=RulesOut)
 def get_rules(auth: RulesAuth = Depends(verify_api_key_or_jwt)) -> RulesOut:
+    """Also returns the org's fail_mode (orgs.fail_mode) alongside the
+    rules -- this is the one call the SDK already makes on a 5-minute
+    poll (sdk/src/ruleCache.ts) to refresh its local rule cache, so it
+    piggybacks the fail-open/fail-closed setting onto the same response
+    rather than adding a second network round-trip for it.
+    """
     supabase = get_supabase()
 
     result = (
@@ -24,7 +30,10 @@ def get_rules(auth: RulesAuth = Depends(verify_api_key_or_jwt)) -> RulesOut:
         .execute()
     )
 
-    return RulesOut(rules=[RuleOut(**row) for row in result.data or []])
+    org_row = maybe_single_result(supabase.table("orgs").select("fail_mode").eq("id", str(auth.org_id)).maybe_single())
+    fail_mode = (org_row.data or {}).get("fail_mode", "open")
+
+    return RulesOut(rules=[RuleOut(**row) for row in result.data or []], fail_mode=fail_mode)
 
 
 @router.patch("/rules/{rule_id}", response_model=RuleOut)

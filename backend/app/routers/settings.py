@@ -11,6 +11,8 @@ from app.auth import UserAuth, verify_jwt
 from app.db import get_supabase, maybe_single_result
 from app.schemas import (
     ApiKeyRegenerateOut,
+    FailModeIn,
+    FailModeOut,
     PendingInviteOut,
     SettingsOut,
     SlackTestResult,
@@ -30,7 +32,7 @@ def get_settings_page(auth: UserAuth = Depends(verify_jwt)) -> SettingsOut:
     org_id = str(auth.org_id)
 
     org_row = maybe_single_result(
-        supabase.table("orgs").select("name, slack_webhook_url").eq("id", org_id).maybe_single()
+        supabase.table("orgs").select("name, slack_webhook_url, fail_mode").eq("id", org_id).maybe_single()
     )
     org = org_row.data or {}
 
@@ -54,6 +56,7 @@ def get_settings_page(auth: UserAuth = Depends(verify_jwt)) -> SettingsOut:
         has_api_key=True,  # orgs.api_key_hash is NOT NULL -- every org always has one
         slack_webhook_configured=bool(org.get("slack_webhook_url")),
         slack_webhook_url=org.get("slack_webhook_url"),
+        fail_mode=org.get("fail_mode", "open"),
         team=[TeamMemberOut(**row) for row in team_result.data or []],
         pending_invites=[PendingInviteOut(**row) for row in invites_result.data or []],
     )
@@ -100,6 +103,20 @@ def test_slack_webhook(auth: UserAuth = Depends(verify_jwt)) -> SlackTestResult:
 
     delivered = post_to_slack(webhook_url, ":wave: This is a test alert from GuardrunAgent.")
     return SlackTestResult(delivered=delivered)
+
+
+@router.put("/fail-mode", response_model=FailModeOut)
+def update_fail_mode(body: FailModeIn, auth: UserAuth = Depends(verify_jwt)) -> FailModeOut:
+    """docs/05-architecture-document.md Section 8: promotes fail-open vs.
+    fail-closed from a client-side-only SDK config to a real org-level
+    setting (orgs.fail_mode). The SDK picks this up via GET /rules (see
+    app/routers/rules.py) -- its own env var/config.json still overrides
+    this per-machine when explicitly set (see sdk/src/config.ts).
+    """
+    supabase = get_supabase()
+    supabase.table("orgs").update({"fail_mode": body.fail_mode}).eq("id", str(auth.org_id)).execute()
+
+    return FailModeOut(fail_mode=body.fail_mode)
 
 
 @router.post("/team/invite", response_model=PendingInviteOut, status_code=201)

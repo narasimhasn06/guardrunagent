@@ -6,16 +6,17 @@ export interface GuardrunAgentConfig {
   apiKey: string;
   endpoint: string;
   /**
-   * Behavior when a guardrail-check network call itself fails (backend
-   * unreachable, not a rule match). docs/05-architecture-document.md
-   * Section 8 requires this to be a configurable org-level setting but
-   * never specifies where that setting lives -- there's no column for it
-   * on `orgs` in the current schema. Implemented client-side for now via
-   * env var / config file, defaulting to "open" (never block the user's
-   * own work over a networking blip). Flagged as a gap-fill, not a
-   * documented default.
+   * Per-machine override for behavior when a guardrail-check network call
+   * itself fails (backend unreachable, not a rule match). `orgs.fail_mode`
+   * (docs/05-architecture-document.md Section 8) is now the real,
+   * org-level source of truth -- fetched alongside GET /rules and cached
+   * the same way (see ruleCache.ts) -- so this is only consulted when set
+   * explicitly, to let one machine override the org's setting (e.g. a
+   * developer debugging offline who wants fail-closed locally regardless
+   * of the org default). Undefined means "no override, use the org's
+   * setting."
    */
-  failMode: "open" | "closed";
+  failModeOverride: "open" | "closed" | undefined;
 }
 
 const CONFIG_DIR = path.join(os.homedir(), ".guardrunagent");
@@ -68,10 +69,11 @@ export function loadConfig(): GuardrunAgentConfig {
     );
   }
 
-  const failModeRaw = process.env.GUARDRUNAGENT_FAIL_MODE ?? fileConfig.failMode ?? "open";
-  const failMode: "open" | "closed" = failModeRaw === "closed" ? "closed" : "open";
+  const failModeOverrideRaw = process.env.GUARDRUNAGENT_FAIL_MODE ?? fileConfig.failMode;
+  const failModeOverride: "open" | "closed" | undefined =
+    failModeOverrideRaw === "open" || failModeOverrideRaw === "closed" ? failModeOverrideRaw : undefined;
 
-  return { apiKey, endpoint, failMode };
+  return { apiKey, endpoint, failModeOverride };
 }
 
 export function ensureConfigDir(): void {

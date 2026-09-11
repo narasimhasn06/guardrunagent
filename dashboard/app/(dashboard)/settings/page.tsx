@@ -1,4 +1,5 @@
 import { ApiKeySection } from "@/components/settings/api-key-section";
+import { FailModeSection } from "@/components/settings/fail-mode-section";
 import { SlackSection } from "@/components/settings/slack-section";
 import { TeamSection } from "@/components/settings/team-section";
 import { BackendError, getSettings } from "@/lib/backend";
@@ -21,6 +22,7 @@ export default async function SettingsPage() {
     <div className="settings-page">
       <h1 className="page-title">Settings</h1>
       <ApiKeySection />
+      <FailModeSection initialFailMode={settings.fail_mode} />
       <SlackSection initialWebhookUrl={settings.slack_webhook_url} />
       <TeamSection team={settings.team} pendingInvites={settings.pending_invites} />
     </div>

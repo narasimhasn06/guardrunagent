@@ -34,11 +34,28 @@ rationale lives in the referenced code's own comments.
   snippet (Section 3) is illustrative, not literal. The SDK uses a
   file-backed event queue (`sdk/src/queue.ts`) instead of an in-memory
   buffer as a result.
-- **Guardrail-check fail-open vs. fail-closed** (docs/05-architecture-document.md
-  Section 8): MVP default is fail-open. There's no org-level setting for
-  this in the schema yet, so it's a client-side SDK config
-  (`GUARDRUNAGENT_FAIL_MODE` env var / `~/.guardrunagent/config.json` —
-  see `sdk/src/config.ts`), not a backend/dashboard setting.
+- **Guardrail-check fail-open vs. fail-closed is now a real org-level
+  setting** (`orgs.fail_mode`, docs/05-architecture-document.md Section
+  8 and docs/03-low-level-design.md Section 1), promoted from what was
+  originally a client-side-only SDK config. Still defaults to fail-open.
+  Closing this gap required solving a real constraint noted at the time
+  it was deferred: each SDK hook is a fresh, one-shot process (see the
+  entry above) with no persistent runtime to hold a fetched setting, and
+  the one moment `fail_mode` actually matters (the backend is
+  unreachable) is exactly when the SDK can't ask the backend for it.
+  Fix: `GET /rules` (`app/routers/rules.py`) now also returns the org's
+  `fail_mode`, piggybacked onto the same 5-minute-cached poll the SDK
+  already does for its local rule cache (`sdk/src/ruleCache.ts`'s
+  `getCachedOrgConfig`, renamed from `getCachedRules`) — no second
+  network round-trip. `GUARDRUNAGENT_FAIL_MODE` /
+  `~/.guardrunagent/config.json` (`sdk/src/config.ts`) still exist, now
+  as `failModeOverride`: a per-machine override that wins over the org
+  setting only when explicitly set (an invalid/unset value no longer
+  silently means "open," it means "no override, defer to the org's
+  setting"). Settings page: an instant-apply toggle (`PUT
+  /settings/fail-mode`), mirroring the Rules tab's "Enabled" toggle
+  rather than the Slack section's form+Save pattern, since it's a
+  single two-state choice, not free text.
 - **Machine (SDK) auth header**: `X-API-Key` (not specified in the docs).
 - **`GET /rules` serves both the SDK (API key) and the dashboard (JWT) at
   the same path** — see `app/auth.py`'s `verify_api_key_or_jwt`. Returns

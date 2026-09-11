@@ -96,6 +96,7 @@ This is where you control what your agents are and aren't allowed to do without 
 
 ### 4.5 Settings
 - **API Key** — view your masked key, or regenerate it (note: regenerating breaks any existing SDK installs using the old key, so update those afterward).
+- **Guardrail Availability** — controls what happens when an agent is about to act but GuardrunAgent's own backend can't be reached: **Fail open** (default) lets the action through rather than block your team's work over a networking blip; **Fail closed** blocks actions until the connection is back, for teams that would rather stop than risk an unreviewed action. Applies to your whole organization and takes effect immediately — every machine running the SDK picks it up the next time it refreshes its local rule cache (within 5 minutes).
 - **Slack Integration** — connect Slack or paste in a webhook URL to receive guardrail alerts. Use the test button to confirm it's working.
 - **Team** — invite teammates by email; they'll sign in the same way you did (Google or email/password) and be added to your organization automatically.
 
@@ -112,7 +113,7 @@ When a guardrail rule blocks or flags an action, GuardrunAgent sends a Slack mes
 No — almost everything is logged in the background without blocking the agent. The only exception is when an action might match a guardrail rule, in which case there's a brief check (typically under 200ms) before the action proceeds.
 
 **Q: What happens if GuardrunAgent's backend is temporarily unreachable?**
-Regular activity logging is queued locally and sent once the connection is restored — you won't lose data. For guardrail checks specifically, ask your admin what your organization's configured behavior is during an outage (some organizations choose to allow actions through by default during downtime, others choose to block by default — this is a setting your team decides on).
+Regular activity logging is queued locally and sent once the connection is restored — you won't lose data. For guardrail checks specifically, it depends on your organization's **Guardrail Availability** setting (Settings → Guardrail Availability): fail-open (the default) lets actions through during an outage, fail-closed blocks them until the connection is back. An admin sets this for the whole organization.
 
 **Q: Can I use GuardrunAgent with tools other than Claude Code?**
 Not yet in this version — Claude Code is the only supported integration today. Support for additional agent tools is planned for a future release.
