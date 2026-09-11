@@ -37,6 +37,51 @@ export interface SessionDetailOut {
   offset: number;
 }
 
+// ---- GET /me, POST /orgs --------------------------------------------------
+// Not documented (see the comment above MeOut in backend/app/schemas.py).
+// getMe() is called from the (dashboard) layout (a Server Component) to
+// decide whether to render the normal app shell or the "create your
+// organization" screen -- every other page 403s for a user with no org,
+// so this has to be checked before any of them render. createOrg() is a
+// mutation, so it's called from a Route Handler (app/api/orgs/route.ts)
+// instead, same reasoning as createRule/updateRule further down.
+
+export interface MeOut {
+  email: string;
+  has_org: boolean;
+  org_id: string | null;
+  role: "admin" | "member" | null;
+}
+
+export async function getMe(): Promise<MeOut> {
+  const response = await authorizedFetch("/me");
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to load account info (${response.status})`);
+  }
+  return response.json();
+}
+
+export interface OrgCreateOut {
+  org_id: string;
+  org_name: string;
+  api_key: string;
+}
+
+export async function createOrg(orgName: string): Promise<OrgCreateOut> {
+  const response = await authorizedFetch("/orgs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ org_name: orgName }),
+  });
+  if (!response.ok) {
+    if (response.status === 409) {
+      throw new BackendError(409, "You already belong to an organization.");
+    }
+    throw new BackendError(response.status, `Failed to create organization (${response.status})`);
+  }
+  return response.json();
+}
+
 // ---- GET /sessions (list) ------------------------------------------------
 // Not documented (see the comment in backend/app/schemas.py). The status
 // filter uses SessionStatus (active/completed/error) -- the UI doc's

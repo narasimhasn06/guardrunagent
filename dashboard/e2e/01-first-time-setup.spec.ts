@@ -38,7 +38,9 @@ test.describe("full first-time setup flow (needs a real staging deployment)", ()
     "set E2E_SEEDED_STAGING=1 against a real staging URL with a seeded SDK install to run this"
   );
 
-  test("new email/password signup lands on the empty-state Home checklist", async ({ page }) => {
+  test("new email/password signup creates an org, then lands on the empty-state Home checklist", async ({
+    page,
+  }) => {
     const email = `e2e-${Date.now()}@example.com`;
     await page.goto("/login");
     await page.getByLabel("Email").fill(email);
@@ -47,6 +49,16 @@ test.describe("full first-time setup flow (needs a real staging deployment)", ()
     // No account exists yet -- the form flips to sign-up mode per
     // login-form.tsx's documented behavior (see its own top comment).
     await page.getByRole("button", { name: "Create account" }).click();
+
+    // A real signup (not an invite) has no org yet -- app/(dashboard)/layout.tsx
+    // shows components/onboarding/create-org-form.tsx instead of any
+    // dashboard page until one exists (backend/app/routers/orgs.py).
+    await expect(page.getByText("Create your organization")).toBeVisible({ timeout: 15_000 });
+    await page.getByLabel("Organization name").fill(`E2E Org ${Date.now()}`);
+    await page.getByRole("button", { name: "Create organization" }).click();
+
+    await expect(page.getByText("You're all set")).toBeVisible();
+    await page.getByRole("button", { name: "Continue to dashboard" }).click();
     await expect(page.getByText(/setup checklist/i)).toBeVisible({ timeout: 15_000 });
   });
 

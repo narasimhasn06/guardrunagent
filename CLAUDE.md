@@ -148,19 +148,26 @@ rationale lives in the referenced code's own comments.
   longer states migration status as a bare claim; it now gives the
   `information_schema` queries to verify it directly before trusting any
   project, staging included.
-- **No self-serve "create your first org" flow exists.** A real signup
-  (not an invite) hits `app/auth.py`'s `verify_jwt` finding no
-  `org_members` row and no matching `org_invites` row, and 403s with "No
-  organization membership found for this user" -- by design, per the
-  comment there, since docs/03-low-level-design.md Section 2.2 step 6
-  names "creating a new org if this is a first-time signup" but no UI or
-  endpoint for it was ever specified. Hit live in staging on the first
-  real (non-invited) signup. Current workaround, staging/testing only:
-  manually insert an `orgs` row (any unique placeholder `api_key_hash`)
-  and a matching `org_members` row (role `'admin'`) via the Supabase SQL
-  Editor, using the new user's `auth.users` UID. Needs a real product
-  decision before real users sign up -- not built here since it's a
-  UI/UX and product-scope question, not a bug.
+- **Self-serve "create your first org" flow: `GET /me` + `POST /orgs`,
+  neither in the LLD's Section 4 API design.** Closes the gap flagged
+  above -- docs/03-low-level-design.md Section 2.2 step 6 names "creating
+  a new org if this is a first-time signup" but never specified an
+  endpoint for it, so a real (non-invited) signup 403'd with no way
+  forward except the manual-SQL staging workaround. `verify_jwt`/`UserAuth`
+  can't serve this itself -- it 403s a user with no org, which would make
+  the very screen meant to fix that unreachable -- so `app/auth.py` now
+  also exposes `JwtIdentity`/`verify_jwt_identity` (decodes the JWT only,
+  no org lookup) and a shared `resolve_or_join_org()` helper (org lookup,
+  falling back to consuming a pending invite -- the same logic
+  `verify_jwt` already had, now also used by `GET /me` so an invite is
+  always resolved before the dashboard ever offers "create your own org,"
+  which would otherwise orphan it). `app/routers/orgs.py`: `GET /me`
+  returns `{has_org, org_id, role}` -- the dashboard's `(dashboard)/layout.tsx`
+  calls it before rendering anything else and shows
+  `components/onboarding/create-org-form.tsx` instead of the normal app
+  shell when `has_org` is false; `POST /orgs` creates the org, makes the
+  caller its admin, and returns a real API key (same "shown exactly once"
+  convention as Settings' regenerate).
 - **SDK distribution: a Claude Code plugin marketplace (`.claude-plugin/marketplace.json`
   at the repo root), not `npm install`.** The dashboard's onboarding card
   and docs/07-user-manual.md Section 3 both told real users to run `npm
