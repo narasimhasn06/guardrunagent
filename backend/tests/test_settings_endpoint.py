@@ -52,6 +52,19 @@ def _override_jwt_auth() -> None:
     )
 
 
+def _override_jwt_auth_as_member() -> None:
+    # A plain Member -- see TestInviteTeamMember/TestCancelInvite/
+    # TestUpdateTeamMemberRole's "non-admin" cases below. Bug fix: these
+    # endpoints never checked role before, so any Member could invite
+    # teammates or promote themselves to Admin.
+    app.dependency_overrides[verify_jwt] = lambda: UserAuth(
+        auth_user_id=UUID("44444444-4444-4444-4444-444444444444"),
+        org_id=UUID(ORG_ID),
+        email="member@example.com",
+        role="member",
+    )
+
+
 class TestGetSettings:
     def test_returns_org_slack_team_and_pending_invites(self, client):
         _override_jwt_auth()
@@ -79,6 +92,22 @@ class TestGetSettings:
         assert body["fail_mode"] == "closed"
         assert body["team"][0]["email"] == "jane@example.com"
         assert body["pending_invites"][0]["email"] == "new.hire@example.com"
+        assert body["your_role"] == "admin"
+
+    def test_your_role_reflects_a_member_caller(self, client):
+        _override_jwt_auth_as_member()
+        fake = FakeSupabase(
+            table_data={
+                "orgs": {"name": "Acme Inc", "slack_webhook_url": None},
+                "org_members": [MEMBER_ROW],
+                "org_invites": [],
+            }
+        )
+
+        with patch("app.routers.settings.get_supabase", return_value=fake):
+            response = client.get("/settings")
+
+        assert response.json()["your_role"] == "member"
 
     def test_no_slack_webhook_configured(self, client):
         _override_jwt_auth()
@@ -309,6 +338,18 @@ class TestInviteTeamMember:
         response = client.post("/settings/team/invite", json={"email": "x@example.com"})
         assert response.status_code == 401
 
+    def test_a_member_cannot_invite(self, client):
+        # Bug fix: this endpoint never checked role before -- any Member
+        # could invite teammates, same as an Admin.
+        _override_jwt_auth_as_member()
+        fake = FakeSupabase()
+
+        with patch("app.routers.settings.get_supabase", return_value=fake):
+            response = client.post("/settings/team/invite", json={"email": "x@example.com"})
+
+        assert response.status_code == 403
+        assert fake.recorded_calls == []  # never even looked anything up
+
 
 class TestCancelInvite:
     def test_deletes_the_invite(self, client):
@@ -325,6 +366,16 @@ class TestCancelInvite:
     def test_requires_jwt_auth(self, client):
         response = client.delete(f"/settings/team/invites/{INVITE_ROW['id']}")
         assert response.status_code == 401
+
+    def test_a_member_cannot_cancel_an_invite(self, client):
+        _override_jwt_auth_as_member()
+        fake = FakeSupabase()
+
+        with patch("app.routers.settings.get_supabase", return_value=fake):
+            response = client.delete(f"/settings/team/invites/{INVITE_ROW['id']}")
+
+        assert response.status_code == 403
+        assert fake.recorded_calls == []
 
 
 class TestUpdateTeamMemberRole:
@@ -351,3 +402,16 @@ class TestUpdateTeamMemberRole:
     def test_requires_jwt_auth(self, client):
         response = client.patch(f"/settings/team/{MEMBER_ROW['id']}", json={"role": "admin"})
         assert response.status_code == 401
+
+    def test_a_member_cannot_change_any_role_including_their_own(self, client):
+        # The real privilege-escalation case: a Member self-promoting to
+        # Admin via this same endpoint (there's nothing here stopping
+        # member_id from being the caller's own org_members.id).
+        _override_jwt_auth_as_member()
+        fake = FakeSupabase()
+
+        with patch("app.routers.settings.get_supabase", return_value=fake):
+            response = client.patch(f"/settings/team/{MEMBER_ROW['id']}", json={"role": "admin"})
+
+        assert response.status_code == 403
+        assert fake.recorded_calls == []

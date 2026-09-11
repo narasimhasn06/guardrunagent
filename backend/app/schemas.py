@@ -285,6 +285,16 @@ class SettingsOut(BaseModel):
     fail_mode: Literal["open", "closed"]
     team: list[TeamMemberOut]
     pending_invites: list[PendingInviteOut]
+    # The caller's own role in this org (UserAuth.role) -- lets the
+    # dashboard hide team-management controls (invite, role toggle,
+    # cancel invite) from a Member. Added as a bug fix: those mutation
+    # endpoints below were never actually role-gated, so any Member could
+    # invite teammates or promote themselves to Admin -- caught during
+    # manual verification of the Super Admin rollout. The read itself
+    # (this whole response) stays available to any org member; only the
+    # mutations are now admin-only, both here (UI) and, authoritatively,
+    # on each mutation endpoint's own check below.
+    your_role: Literal["admin", "member"]
 
 
 # ---- GET /admin/orgs, GET /admin/orgs/:id/members -------------------------

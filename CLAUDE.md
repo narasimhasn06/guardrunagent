@@ -269,3 +269,22 @@ rationale lives in the referenced code's own comments.
   (Section 1 schema, Section 4.6, Section 6 route table) and
   docs/04-ui-ux-design.md (Section 2 IA diagram, new Section 3.7)
   updated alongside this, per this file's own Conventions section.
+- **Settings → Team management was never actually restricted to Admins.**
+  Caught during manual verification of the Super Admin rollout above: a
+  Member could invite teammates, cancel a pending invite, and change any
+  member's role -- including promoting themselves to Admin -- because
+  `app/routers/settings.py`'s `invite_team_member`, `cancel_invite`, and
+  `update_team_member_role` never checked `UserAuth.role`, and
+  `components/settings/team-section.tsx` rendered the same controls for
+  every viewer regardless of role. docs/04-ui-ux-design.md Section 3.6's
+  "no granular permissions needed at MVP" was about the *number* of
+  levels (just Admin/Member), not about Member having Admin's powers --
+  clarified there now. Fixed: a new `_require_admin(auth)` guard (403 if
+  `auth.role != "admin"`) on all three mutation endpoints -- the real
+  gate. `GET /settings` also grows a `your_role` field (the caller's own
+  `UserAuth.role`, already resolved by `verify_jwt` -- no extra query) so
+  the dashboard can render read-only for a Member: no invite form, roles
+  shown as plain text instead of a toggle button, no cancel-invite
+  button. That UI hiding is a convenience only, never the actual
+  security boundary -- confirmed by testing the backend endpoints
+  directly with a Member's role, not just checking what the UI shows.

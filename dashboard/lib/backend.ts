@@ -445,6 +445,12 @@ export interface SettingsOut {
   fail_mode: FailMode;
   team: TeamMemberOut[];
   pending_invites: PendingInviteOut[];
+  // The caller's own role in this org -- drives whether TeamSection shows
+  // its management controls (invite form, role toggle, cancel invite).
+  // Bug fix: those were previously shown to every org member regardless
+  // of role, and the backend's mutation endpoints didn't check role
+  // either -- see backend/app/routers/settings.py's _require_admin.
+  your_role: TeamRole;
 }
 
 export async function getSettings(): Promise<SettingsOut> {
