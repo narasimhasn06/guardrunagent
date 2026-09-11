@@ -64,9 +64,9 @@ This document describes the system's architectural qualities, views, and cross-c
 
 - **Single region** deployment for MVP (staging is currently deployed in Singapore, matching where pilot customers are concentrated)
 - **Backend and dashboard**: two separate persistent services on Railway, each independently deployable
-- **Database/Auth**: one Supabase project per environment (a `staging` and a `production` Supabase project, kept separate to avoid pilot data mixing with test data) — **status**: the `staging` project is provisioned and live (all migrations applied, verified against `information_schema` — see `DEPLOYMENT.md`); a separate `production` Supabase project and Railway services have not been provisioned yet, deferred past initial MVP build
+- **Database/Auth**: one Supabase project per environment (a `staging` and a `production` Supabase project, kept separate to avoid pilot data mixing with test data) — **status**: both are provisioned and live (all migrations applied, verified against `information_schema` — see `DEPLOYMENT.md`); the production Railway environment (`guardrunagent-backend-production`, `guardrunagent-dashboard-production`) is deployed alongside staging in the same Railway project, with its own Auth/Google OAuth configuration on the production Supabase project, and end-to-end sign-in (Google and email/password) verified against it
 - **No containerized orchestration (Kubernetes, etc.)** — Railway's native deploy-from-git flow is sufficient at this scale and avoids unnecessary ops complexity
-- **CI**: GitHub Actions running tests on every PR (see the Test Plan document for coverage detail); Railway auto-deploys the staging services on push to `main`; production promotion is manual and not yet exercised, since production doesn't exist yet
+- **CI**: GitHub Actions running tests on every PR (see the Test Plan document for coverage detail); Railway auto-deploys the staging services on push to `main`; production has autodeploy disabled and is promoted manually ("Deploy Latest Commit" against a chosen commit — see `DEPLOYMENT.md`'s "Deploying production via Railway"), matching this section's original "manual promote to production" intent
 
 ## 6. Data Flow Architecture (Two Paths)
 
