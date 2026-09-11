@@ -287,17 +287,18 @@ this section is a summary, not a duplicate of that detail:
 
 Closes the gap flagged in CLAUDE.md's "Planned, not yet built": a
 platform-level operator, separate from each org's own admin/member role,
-who can see every org and every org's users. Both endpoints require
+who can see every org and every org's users. All three endpoints require
 `app/auth.py`'s `verify_platform_admin` — decode the Supabase JWT, then
 check membership in the new `platform_admins` table (Section 1), 403 if
-absent — and deliberately query across every org with no `org_id` filter,
-same app-layer-guard approach as every other endpoint here (Section 7:
-no Postgres RLS yet).
+absent — and deliberately accept any `org_id`/query across every org with
+no restriction to the caller's own, same app-layer-guard approach as
+every other endpoint here (Section 7: no Postgres RLS yet).
 
 | Endpoint | Auth | Purpose |
 |---|---|---|
 | `GET /admin/orgs` | Supabase JWT + `platform_admins` row | Every org on the platform, with its member count. Powers the "Organizations" screen's list view (docs/04-ui-ux-design.md). |
 | `GET /admin/orgs/{org_id}/members` | Supabase JWT + `platform_admins` row | The requested org's team and pending invites (same shape as `GET /settings`'s team/pending_invites, scoped to any org rather than the caller's own). 404 if the org doesn't exist. |
+| `POST /admin/orgs/{org_id}/invite` | Supabase JWT + `platform_admins` row | Added after the initial read-only build (see CLAUDE.md's decisions log): lets a Super Admin invite a new member into any org. Shares its conflict/insert logic with `POST /settings/team/invite` via `app/invites.py`'s `create_pending_invite`. 404 if the org doesn't exist; otherwise the same 409s as the Settings version (already a member / already invited). Deliberately narrow -- no equivalent cross-org role-change or cancel-invite endpoint; those stay with each org's own admins. |
 
 `GET /me`'s response also grows an `is_platform_admin: bool` field
 (independent of `has_org`/`org_id`/`role` — a platform admin has no

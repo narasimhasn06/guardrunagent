@@ -297,15 +297,18 @@ class SettingsOut(BaseModel):
     your_role: Literal["admin", "member"]
 
 
-# ---- GET /admin/orgs, GET /admin/orgs/:id/members -------------------------
+# ---- GET /admin/orgs, GET /admin/orgs/:id/members, POST /admin/orgs/:id/invite ----
 # Super Admin role -- see CLAUDE.md's "Planned, not yet built" entry this
 # closes and app/routers/admin.py. New scope, not in the original docs;
 # see docs/03-low-level-design.md Section 4.6 and docs/04-ui-ux-design.md's
-# "Organizations" screen. Both endpoints require verify_platform_admin
-# (app/auth.py) and deliberately query across every org, with no org_id
-# filter -- the guard is the dependency itself, not a query scope.
-# Reuses TeamMemberOut/PendingInviteOut above -- an org's member/invite
-# list looks the same whether an org admin or a platform admin is asking.
+# "Organizations" screen. All three endpoints require verify_platform_admin
+# (app/auth.py) and deliberately accept any org_id, with no restriction to
+# the caller's own -- the guard is the dependency itself, not a query
+# scope. Reuses TeamMemberOut/PendingInviteOut above -- an org's
+# member/invite list looks the same whether an org admin or a platform
+# admin is asking. The invite endpoint reuses TeamInviteIn too, and
+# PendingInviteOut as its response -- an invite is an invite regardless
+# of who created it.
 
 
 class AdminOrgOut(BaseModel):

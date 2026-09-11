@@ -9,6 +9,7 @@ from app.alerting import post_to_slack
 from app.api_keys import hash_api_key
 from app.auth import UserAuth, verify_jwt
 from app.db import get_supabase, maybe_single_result
+from app.invites import create_pending_invite
 from app.schemas import (
     ApiKeyRegenerateOut,
     FailModeIn,
@@ -149,22 +150,8 @@ def invite_team_member(body: TeamInviteIn, auth: UserAuth = Depends(verify_jwt))
     """
     _require_admin(auth)
     supabase = get_supabase()
-    email = body.email.strip().lower()
-
-    existing_member = maybe_single_result(supabase.table("org_members").select("id").eq("email", email).maybe_single())
-    if existing_member.data:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This email already belongs to a team")
-
-    existing_invite = maybe_single_result(supabase.table("org_invites").select("id").eq("email", email).maybe_single())
-    if existing_invite.data:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This email has already been invited")
-
-    result = (
-        supabase.table("org_invites")
-        .insert({"org_id": str(auth.org_id), "email": email, "role": body.role})
-        .execute()
-    )
-    return PendingInviteOut(**result.data[0])
+    invite = create_pending_invite(supabase, str(auth.org_id), body.email, body.role)
+    return PendingInviteOut(**invite)
 
 
 @router.delete("/team/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)

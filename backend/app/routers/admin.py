@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth import PlatformAdminAuth, verify_platform_admin
 from app.db import get_supabase, maybe_single_result
-from app.schemas import AdminOrgMembersOut, AdminOrgOut, AdminOrgsOut, PendingInviteOut, TeamMemberOut
+from app.invites import create_pending_invite
+from app.schemas import AdminOrgMembersOut, AdminOrgOut, AdminOrgsOut, PendingInviteOut, TeamInviteIn, TeamMemberOut
 
 router = APIRouter(prefix="/admin")
 
@@ -82,3 +83,30 @@ def get_org_members(
         team=[TeamMemberOut(**row) for row in team_result.data or []],
         pending_invites=[PendingInviteOut(**row) for row in invites_result.data or []],
     )
+
+
+@router.post("/orgs/{org_id}/invite", response_model=PendingInviteOut, status_code=status.HTTP_201_CREATED)
+def invite_org_member(
+    org_id: UUID, body: TeamInviteIn, _admin: PlatformAdminAuth = Depends(verify_platform_admin)
+) -> PendingInviteOut:
+    """Lets a Super Admin invite a new member into *any* org, from the
+    Organizations detail page -- added after the initial read-only build
+    (see CLAUDE.md's decisions log) once real usage showed a genuine need
+    for it, e.g. onboarding a client org's first user without having to
+    be a member of that org already.
+
+    Deliberately not a role change or invite-cancel here too -- an org's
+    own admins still see and manage everything this creates through
+    their normal Settings -> Team (the invite lands in the same
+    org_invites table, via the same create_pending_invite as
+    app/routers/settings.py's invite_team_member). This stays a narrow
+    addition: get someone in, don't take over running the org.
+    """
+    supabase = get_supabase()
+
+    org_row = maybe_single_result(supabase.table("orgs").select("name").eq("id", str(org_id)).maybe_single())
+    if not org_row.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+    invite = create_pending_invite(supabase, str(org_id), body.email, body.role)
+    return PendingInviteOut(**invite)

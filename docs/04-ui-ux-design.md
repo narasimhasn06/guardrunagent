@@ -126,7 +126,7 @@ Two tabs: **Rules** and **Activity Log**
 
 - Only reachable via the **Organizations** nav item, itself only rendered when `GET /me` reports `is_platform_admin: true` — every other user never sees this nav item or screen at all. The real access control is the backend's `verify_platform_admin` (`app/auth.py`), not this UI check; the check here only avoids showing a link that would 403.
 - **List view:** table of every org — Organization name, Member count, Created date. Click a row to drill in.
-- **Organization Detail:** that org's team and pending invites, in the same shape as its own Settings → Team tab, but **read-only** — no invite form, role toggle, or cancel-invite action. A platform admin is here to look, not to manage another org's team on its behalf.
+- **Organization Detail:** that org's team and pending invites, in the same shape as its own Settings → Team tab, mostly **read-only** — no role toggle or cancel-invite action; an org's own admins keep those, from their own Settings → Team. The one exception, added after real usage showed a genuine need for it: an **invite-by-email form**, so a Super Admin can onboard a client org's first user without needing to already be a member of that org. It creates the same pending invite an org admin's own invite would — fully visible, and cancellable, from that org's own Settings → Team.
 - No self-serve way to become a Super Admin from any screen — granted by adding a row to `platform_admins` directly via SQL (see `DEPLOYMENT.md`), deliberately, given how sensitive cross-org visibility is.
 
 ## 4. Key UX Flows
