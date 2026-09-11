@@ -206,6 +206,37 @@ class GuardrailActivityOut(BaseModel):
     offset: int
 
 
+# ---- GET /me, POST /orgs --------------------------------------------------
+# Neither endpoint is in docs/03-low-level-design.md's Section 4 API design
+# or Section 6 route table -- both close a real gap it names but never
+# specifies storage/an endpoint for: docs/03-low-level-design.md Section
+# 2.2 step 6 says a first-time signup with no org membership should get
+# "creating a new org," but no UI, endpoint, or schema for that exists
+# anywhere. GET /me is what the dashboard calls first to decide whether to
+# render the normal app shell or a "create your organization" screen
+# (verify_jwt/UserAuth can't answer this -- it 403s a user with no org,
+# which would make the screen that's supposed to fix that unreachable).
+# See app/auth.py's JwtIdentity/verify_jwt_identity and
+# app/routers/orgs.py.
+
+
+class MeOut(BaseModel):
+    email: str
+    has_org: bool
+    org_id: UUID | None = None
+    role: Literal["admin", "member"] | None = None
+
+
+class OrgCreateIn(BaseModel):
+    org_name: str
+
+
+class OrgCreateOut(BaseModel):
+    org_id: UUID
+    org_name: str
+    api_key: str  # plaintext -- returned exactly once, same convention as ApiKeyRegenerateOut
+
+
 # ---- /settings -----------------------------------------------------------
 # Settings page per docs/04-ui-ux-design.md Section 3.6: API key
 # (masked display + regenerate), Slack integration (webhook paste + test

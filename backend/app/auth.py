@@ -28,6 +28,19 @@ class UserAuth(BaseModel):
     role: str
 
 
+class JwtIdentity(BaseModel):
+    """A verified Supabase JWT's identity, with no org membership resolved
+    (or required) yet. Used by the two endpoints that must be reachable
+    *before* a user has an org at all -- GET /me and POST /orgs (see
+    app/routers/orgs.py) -- since verify_jwt/UserAuth 403s a user with no
+    org, which would make those endpoints unreachable for exactly the
+    users who need them.
+    """
+
+    auth_user_id: UUID
+    email: str
+
+
 def verify_api_key(x_api_key: str | None = Header(default=None)) -> OrgAuth:
     """Machine auth for SDK -> backend requests (POST /events, /guardrail-check).
 
@@ -99,14 +112,10 @@ def _decode_supabase_jwt(token: str, settings: Settings) -> dict:
     return jwt.decode(token, settings.supabase_jwt_secret, algorithms=["HS256"], audience="authenticated")
 
 
-def verify_jwt(authorization: str | None = Header(default=None)) -> UserAuth:
-    """Human auth for dashboard -> backend requests.
-
-    Verifies the Supabase-issued JWT locally -- see _decode_supabase_jwt
-    for why this isn't just HS256-against-a-shared-secret anymore, per
-    docs/03-low-level-design.md Section 2.2's original description. No
-    round-trip call to Supabase's Auth API needed either way, only to its
-    (public, cacheable) JWKS endpoint when the JWKS path is used.
+def verify_jwt_identity(authorization: str | None = Header(default=None)) -> JwtIdentity:
+    """Verifies the Supabase-issued JWT and returns its identity, with no
+    org-membership lookup at all -- see JwtIdentity's docstring for why
+    this exists separately from verify_jwt/UserAuth.
     """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
@@ -123,59 +132,87 @@ def verify_jwt(authorization: str | None = Header(default=None)) -> UserAuth:
     if not auth_user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing subject claim")
 
-    supabase = get_supabase()
+    return JwtIdentity(auth_user_id=auth_user_id, email=(payload.get("email") or "").lower())
+
+
+def resolve_or_join_org(supabase, auth_user_id: str, email: str) -> dict | None:
+    """Looks up this auth_user_id's org_members row, joining it to a
+    pending invite's org first if one matches their email (per
+    docs/03-low-level-design.md Section 2.2 step 6: "joining an org via
+    invite"). Returns None if there's neither -- meaning this user has no
+    org and no invite is waiting for them, so the caller decides what
+    that means: verify_jwt (below) 403s, GET /me (app/routers/orgs.py)
+    tells the dashboard to show the "create your organization" screen.
+
+    Consuming any pending invite here, in the one function both verify_jwt
+    and GET /me go through, matters for a specific reason: GET /me is
+    what the dashboard calls to decide whether to show that screen at
+    all, so an invite must already be resolved by the time GET /me
+    answers -- otherwise a user could submit "create my own org" (POST
+    /orgs) while a pending invite for their email still exists, orphaning
+    it (their real invite forever unconsumed, and them now in a
+    self-created org instead of the one that invited them).
+    """
     member = maybe_single_result(
         supabase.table("org_members").select("org_id, role, email").eq("auth_user_id", auth_user_id).maybe_single()
     )
+    if member.data:
+        return member.data
 
-    if not member.data:
-        # Per docs/03-low-level-design.md Section 2.2 step 6: "joining an
-        # org via invite, or creating a new org if this is a first-time
-        # signup." The invite half is now built (Settings > Team --
-        # app/routers/settings.py writes a pending org_invites row, keyed
-        # by email); consume it here on the invited person's first login.
-        # The new-org-signup half still isn't specified anywhere (no UI
-        # for naming/creating an org exists), so that case still fails
-        # clearly with 403 rather than guessing at unspecified behavior.
-        email = (payload.get("email") or "").lower()
-        invite = (
-            maybe_single_result(supabase.table("org_invites").select("id, org_id, role").eq("email", email).maybe_single())
-            if email
-            else None
+    invite = (
+        maybe_single_result(supabase.table("org_invites").select("id, org_id, role").eq("email", email).maybe_single())
+        if email
+        else None
+    )
+    if not invite or not invite.data:
+        return None
+
+    created = (
+        supabase.table("org_members")
+        .insert(
+            {
+                "org_id": invite.data["org_id"],
+                "auth_user_id": auth_user_id,
+                "email": email,
+                "role": invite.data["role"],
+            }
         )
-        if not invite or not invite.data:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No organization membership found for this user",
-            )
+        .execute()
+    )
+    supabase.table("org_invites").delete().eq("id", invite.data["id"]).execute()
+    return created.data[0]
 
-        created = (
-            supabase.table("org_members")
-            .insert(
-                {
-                    "org_id": invite.data["org_id"],
-                    "auth_user_id": auth_user_id,
-                    "email": email,
-                    "role": invite.data["role"],
-                }
-            )
-            .execute()
-        )
-        supabase.table("org_invites").delete().eq("id", invite.data["id"]).execute()
-        member_data = created.data[0]
 
-        return UserAuth(
-            auth_user_id=auth_user_id,
-            org_id=member_data["org_id"],
-            email=member_data["email"],
-            role=member_data["role"],
+def verify_jwt(authorization: str | None = Header(default=None)) -> UserAuth:
+    """Human auth for dashboard -> backend requests.
+
+    Verifies the Supabase-issued JWT locally -- see _decode_supabase_jwt
+    for why this isn't just HS256-against-a-shared-secret anymore, per
+    docs/03-low-level-design.md Section 2.2's original description. No
+    round-trip call to Supabase's Auth API needed either way, only to its
+    (public, cacheable) JWKS endpoint when the JWKS path is used.
+    """
+    identity = verify_jwt_identity(authorization=authorization)
+    supabase = get_supabase()
+    member_data = resolve_or_join_org(supabase, str(identity.auth_user_id), identity.email)
+
+    if not member_data:
+        # The new-org-signup half of step 6 above is now built -- POST
+        # /orgs (app/routers/orgs.py) -- but it's a distinct, dedicated
+        # endpoint a user reaches through the dashboard's "create your
+        # organization" screen, not something verify_jwt does implicitly
+        # on any old request (unlike the invite case, there's no name to
+        # create the org with here).
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No organization membership found for this user",
         )
 
     return UserAuth(
-        auth_user_id=auth_user_id,
-        org_id=member.data["org_id"],
-        email=member.data.get("email") or payload.get("email") or "",
-        role=member.data["role"],
+        auth_user_id=identity.auth_user_id,
+        org_id=member_data["org_id"],
+        email=member_data.get("email") or identity.email,
+        role=member_data["role"],
     )
 
 

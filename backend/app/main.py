@@ -6,6 +6,7 @@ from app.routers import (
     events,
     guardrail_activity,
     guardrail_check,
+    orgs,
     rules,
     sessions,
     settings,
@@ -21,6 +22,7 @@ app.include_router(cost_summary.router)
 app.include_router(dashboard_summary.router)
 app.include_router(guardrail_activity.router)
 app.include_router(settings.router)
+app.include_router(orgs.router)
 
 
 @app.get("/health")

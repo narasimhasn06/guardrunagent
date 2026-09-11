@@ -16,7 +16,10 @@ This manual covers: getting your account set up, installing the SDK, understandi
 3. If you later sign in a different way using the *same email address*, GuardrunAgent automatically recognizes it's you — you won't end up with two separate accounts.
 
 ### 2.2 Your first login
-On first login, you'll land on the Dashboard Home with a setup checklist:
+- **If you were invited by a teammate:** you're linked to their organization automatically — you'll land straight on the Dashboard Home with a setup checklist (below).
+- **If you signed up on your own:** you're not part of an organization yet, so you'll first see a "Create your organization" screen. Give it a name — you'll become its admin — and you'll be shown your org's API key exactly once, so copy it somewhere safe before continuing.
+
+Either way, Dashboard Home then shows a setup checklist:
 1. Install the SDK
 2. Add your API key
 3. Run your first agent session
