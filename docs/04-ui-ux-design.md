@@ -19,14 +19,22 @@ Login (email/password or Google)
         ├── Cost
         ├── Guardrail Rules
         │     └── Activity Log
-        └── Settings
-              ├── API Key
-              ├── Guardrail Availability (fail-open / fail-closed)
-              ├── Slack Integration
-              └── Team / Users
+        ├── Settings
+        │     ├── API Key
+        │     ├── Guardrail Availability (fail-open / fail-closed)
+        │     ├── Slack Integration
+        │     └── Team / Users
+        └── Organizations (Super Admin only, added during implementation)
+              └── Organization Detail (team + pending invites)
 ```
 
 Five primary nav items, always visible in a left sidebar: **Home, Sessions, Cost, Rules, Settings**. No deeper nesting than two levels for MVP. The sidebar footer (added during implementation, on every page) shows the signed-in user's email and a **Sign out** button — not a sixth nav item, but present throughout the group above.
+
+**Organizations** (added during implementation, closes CLAUDE.md's
+"Planned, not yet built" Super Admin entry): a sixth nav item, shown only
+when `GET /me` reports `is_platform_admin` — a platform-level operator,
+separate from any org's own Admin/Member role, who can see every org.
+Invisible to every other signed-in user; see Section 3.7 below.
 
 **Create your organization** (added during implementation): a real signup that wasn't invited by a teammate has no org yet — this screen (a name field, shown instead of the app shell) is where they create one and become its admin, shown their org's API key exactly once before continuing in. Only reachable once, on first login, for a self-signup account; an invited teammate skips straight to Dashboard Home. See Section 4.1 below.
 
@@ -112,6 +120,14 @@ Two tabs: **Rules** and **Activity Log**
 - **Guardrail Availability** (added during implementation, promoting docs/05-architecture-document.md Section 8's client-side-only gap to a real setting): one instant-apply toggle switch, same visual language as the Rules tab's "Enabled" toggle — "Fail open" (default) vs. "Fail closed," with copy explaining what it controls (what an agent's action does when GuardrunAgent's own backend is unreachable during a guardrail check). No separate Save step; the toggle applies immediately, matching the Rules tab convention rather than the Slack section's form+Save pattern.
 - **Slack Integration:** manual webhook URL paste, built for MVP simplicity as planned; the "Connect Slack" OAuth flow alternative was not built — a pasted Incoming Webhook URL is the only supported path. Test button sends a sample alert.
 - **Team/Users:** simple list + invite-by-email, role toggle (Admin/Member) — no granular permissions needed at MVP. Invited members sign in via the same Login screen (email/password or Google), and are linked to the org on first login.
+
+### 3.7 Organizations (Super Admin only, added during implementation)
+**Purpose:** let a platform-level operator (not tied to any one org's Admin/Member role) see and support every org on the platform. Closes CLAUDE.md's "Planned, not yet built" Super Admin entry.
+
+- Only reachable via the **Organizations** nav item, itself only rendered when `GET /me` reports `is_platform_admin: true` — every other user never sees this nav item or screen at all. The real access control is the backend's `verify_platform_admin` (`app/auth.py`), not this UI check; the check here only avoids showing a link that would 403.
+- **List view:** table of every org — Organization name, Member count, Created date. Click a row to drill in.
+- **Organization Detail:** that org's team and pending invites, in the same shape as its own Settings → Team tab, but **read-only** — no invite form, role toggle, or cancel-invite action. A platform admin is here to look, not to manage another org's team on its behalf.
+- No self-serve way to become a Super Admin from any screen — granted by adding a row to `platform_admins` directly via SQL (see `DEPLOYMENT.md`), deliberately, given how sensitive cross-org visibility is.
 
 ## 4. Key UX Flows
 
