@@ -198,3 +198,25 @@ rationale lives in the referenced code's own comments.
   `guardrunagent` to exist first, since a scoped package publish only
   succeeds automatically under a scope matching the publisher's own npm
   username.
+- **`request.url`'s origin in a Route Handler can be the container's own
+  internal bind address, not the public domain, behind Railway's reverse
+  proxy.** Caught live in staging: Google OAuth sign-in worked (Google
+  approved, redirected to Supabase, Supabase redirected to the correct
+  public dashboard domain per its own Site URL/Redirect URLs config --
+  all separately verified correct), but the browser then landed on
+  `https://0.0.0.0:8080` -- an address that was never reachable from
+  outside the container in the first place -- and failed with
+  `ERR_ADDRESS_INVALID`/connection-refused. Root cause:
+  `app/auth/callback/route.ts` built its post-login redirect from `new
+  URL(request.url).origin`, which reflected this dashboard service's own
+  internal bind address (`0.0.0.0:8080`, per `dashboard/railway.toml`'s
+  `-H 0.0.0.0` start command) rather than the public Railway domain --
+  Railway's proxy doesn't preserve the original public host in the
+  bare `Host` header the way `request.url` reads it. Fixed by preferring
+  `X-Forwarded-Proto`/`X-Forwarded-Host` (which the proxy does set
+  correctly) when present, falling back to `request.url`'s own origin
+  for local dev where there's no proxy in front and those headers don't
+  exist. Only this route was affected -- plain email/password sign-in
+  never goes through it (`login-form.tsx` redirects client-side via
+  `router.push`), so this stayed invisible until the first real Google
+  OAuth (or password-reset) attempt against the deployed staging site.
