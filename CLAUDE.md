@@ -237,3 +237,23 @@ rationale lives in the referenced code's own comments.
   never goes through it (`login-form.tsx` redirects client-side via
   `router.push`), so this stayed invisible until the first real Google
   OAuth (or password-reset) attempt against the deployed staging site.
+
+## Planned, not yet built
+
+- **Super Admin role** -- a platform-level operator, separate from each
+  org's own admin/member roles, who can see every org and every user
+  across the whole product (not just their own org). Requested to
+  support onboarding/managing multiple client orgs. Design agreed but
+  not implemented: a new `platform_admins` table (`auth_user_id` only --
+  deliberately *not* a value inside `org_members.role`, so it can never
+  be exposed in an org's own team-invite dropdown); new `GET
+  /admin/orgs` + `GET /admin/orgs/{id}/members` endpoints gated by a
+  `verify_platform_admin` dependency (same shape as `verify_jwt`); a
+  dashboard nav item shown only when `GET /me` reports platform-admin
+  status; membership in `platform_admins` granted manually via SQL, no
+  self-serve invite UI -- deliberate, given how sensitive cross-org
+  visibility is. Needs docs/03-low-level-design.md (schema) and
+  docs/04-ui-ux-design.md (new screen) updated first, since this is new
+  scope not in the original docs. No SDK changes needed -- the SDK only
+  ever authenticates as one org via its API key; it has no concept of
+  "admin," "org," or cross-org anything.
