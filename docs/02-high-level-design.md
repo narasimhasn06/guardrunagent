@@ -106,7 +106,7 @@ All other (non-risky) actions are logged fully asynchronously — no added laten
 ## 5. Deployment Topology (MVP)
 
 - Backend (FastAPI) and Dashboard (Next.js): both hosted on **Railway** as persistent services, single region (see Section 2.2's note — no Render subscription available; `render.yaml` kept as an unused fallback)
-- Database + Auth: Supabase (managed Postgres + Supabase Auth) — a `staging` project exists and is live; a separate `production` project is not yet provisioned (deferred past MVP build)
+- Database + Auth: Supabase (managed Postgres + Supabase Auth) — separate `staging` and `production` projects, both live (see docs/05-architecture-document.md Section 5)
 - No multi-tenancy isolation beyond row-level `org_id` scoping (acceptable at pilot scale; RLS is a documented future upgrade — see Section 4)
 - **SDK distributed as a Claude Code plugin, not a plain npm package** — customers run `/plugin marketplace add` + `/plugin install` inside a Claude Code session, not `npm install`. Claude Code never scans `node_modules` for plugins, so a plain npm install would never wire up the SDK's hooks at all. The plugin marketplace (`.claude-plugin/marketplace.json` at the repo root) does point at an npm-published package (`@guardrunagent/sdk`) as its source, so npm is still involved as a distribution channel, just not the direct install command. See `CLAUDE.md`'s decisions log and `docs/07-user-manual.md` Section 3.
 - Version control: GitHub (development only, not a runtime component)

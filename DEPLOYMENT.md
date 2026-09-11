@@ -32,17 +32,24 @@ its own Supabase project.
 - **CI**: `.github/workflows/ci.yml` runs the backend/dashboard/SDK test
   suites on every PR. It does not deploy anything -- see "How deploys
   actually happen" below.
-- **Supabase**: the existing project (created earlier in this project) is
-  designated **staging**. A second project is needed for production --
-  see "Before the first deploy" below. **Don't trust "all migrations
-  applied" on faith for any project, including this one**: staging was
-  believed fully migrated but was actually missing 3 of the 12 files
-  (`...0007`, `...0008`, `...0009` -- the `cost_summary`, `list_sessions`,
-  and `cost_breakdown_by_day` functions) and one column
-  (`...0010`'s `guardrail_activity.session_id`), discovered only when
+- **Supabase**: two projects now exist, **staging** and **production**,
+  each with every migration in `supabase/migrations/` applied and
+  verified. **Don't trust "all migrations applied" on faith for any
+  project, including these**: staging was once believed fully migrated
+  but was actually missing 3 of the 12 files (`...0007`, `...0008`,
+  `...0009` -- the `cost_summary`, `list_sessions`, and
+  `cost_breakdown_by_day` functions) and one column (`...0010`'s
+  `guardrail_activity.session_id`), discovered only when
   `/dashboard-summary` 500'd in production with `PGRST202: Could not find
   the function public.cost_summary(...)`. Verify with the two queries in
-  "Before the first deploy" step 1 before believing a project is current.
+  "Before the first deploy" step 1 before believing a project is current
+  -- including before applying any *new* migration to either one going
+  forward.
+- **Production is live**: `guardrunagent-backend-production` and
+  `guardrunagent-dashboard-production` are deployed as a manual-promote
+  Railway environment alongside staging (see "Deploying production via
+  Railway" below), with Auth/Google OAuth configured on the production
+  Supabase project and end-to-end sign-in verified.
 
 ## Before the first deploy
 
