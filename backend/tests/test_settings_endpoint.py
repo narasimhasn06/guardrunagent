@@ -57,7 +57,11 @@ class TestGetSettings:
         _override_jwt_auth()
         fake = FakeSupabase(
             table_data={
-                "orgs": {"name": "Acme Inc", "slack_webhook_url": "https://hooks.slack.example/services/xyz"},
+                "orgs": {
+                    "name": "Acme Inc",
+                    "slack_webhook_url": "https://hooks.slack.example/services/xyz",
+                    "fail_mode": "closed",
+                },
                 "org_members": [MEMBER_ROW],
                 "org_invites": [INVITE_ROW],
             }
@@ -72,6 +76,7 @@ class TestGetSettings:
         assert body["has_api_key"] is True
         assert body["slack_webhook_configured"] is True
         assert body["slack_webhook_url"] == "https://hooks.slack.example/services/xyz"
+        assert body["fail_mode"] == "closed"
         assert body["team"][0]["email"] == "jane@example.com"
         assert body["pending_invites"][0]["email"] == "new.hire@example.com"
 
@@ -91,6 +96,7 @@ class TestGetSettings:
         body = response.json()
         assert body["slack_webhook_configured"] is False
         assert body["slack_webhook_url"] is None
+        assert body["fail_mode"] == "open"  # orgs.fail_mode's own DB default
 
     def test_missing_auth_is_rejected(self, client):
         response = client.get("/settings")
@@ -171,6 +177,30 @@ class TestSlackWebhook:
 
     def test_requires_jwt_auth(self, client):
         response = client.put("/settings/slack-webhook", json={"webhook_url": "https://x"})
+        assert response.status_code == 401
+
+
+class TestFailMode:
+    def test_updates_the_orgs_fail_mode(self, client):
+        _override_jwt_auth()
+        fake = FakeSupabase()
+
+        with patch("app.routers.settings.get_supabase", return_value=fake):
+            response = client.put("/settings/fail-mode", json={"fail_mode": "closed"})
+
+        assert response.status_code == 200
+        assert response.json() == {"fail_mode": "closed"}
+
+        update_calls = [c for c in fake.recorded_calls if c[0] == "update" and c[1] == "orgs"]
+        assert update_calls == [("update", "orgs", {"fail_mode": "closed"})]
+
+    def test_rejects_a_value_other_than_open_or_closed(self, client):
+        _override_jwt_auth()
+        response = client.put("/settings/fail-mode", json={"fail_mode": "sometimes"})
+        assert response.status_code == 422
+
+    def test_requires_jwt_auth(self, client):
+        response = client.put("/settings/fail-mode", json={"fail_mode": "closed"})
         assert response.status_code == 401
 
 

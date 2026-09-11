@@ -11,6 +11,7 @@ CREATE TABLE orgs (
   name TEXT NOT NULL,
   api_key_hash TEXT NOT NULL UNIQUE,   -- for SDK -> backend machine auth (unrelated to Supabase Auth)
   slack_webhook_url TEXT,
+  fail_mode TEXT NOT NULL DEFAULT 'open' CHECK (fail_mode IN ('open', 'closed')),  -- guardrail-check behavior when the backend is unreachable; see Section 8
   created_at TIMESTAMPTZ DEFAULT now()
 );
 

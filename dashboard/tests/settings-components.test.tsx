@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiKeySection } from "@/components/settings/api-key-section";
+import { FailModeSection } from "@/components/settings/fail-mode-section";
 import { SlackSection } from "@/components/settings/slack-section";
 import { TeamSection } from "@/components/settings/team-section";
 import type { PendingInviteOut, TeamMemberOut } from "@/lib/backend";
@@ -177,6 +178,48 @@ describe("SlackSection", () => {
     await user.click(screen.getByRole("button", { name: /send test alert/i }));
 
     await waitFor(() => expect(screen.getByText(/couldn't be delivered/i)).toBeInTheDocument());
+  });
+});
+
+describe("FailModeSection", () => {
+  it("shows the fail-open state and copy by default", () => {
+    render(<FailModeSection initialFailMode="open" />);
+    const toggle = screen.getByRole("switch");
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByText(/fail open — let actions through/i)).toBeInTheDocument();
+  });
+
+  it("shows the fail-closed state and copy when already set to closed", () => {
+    render(<FailModeSection initialFailMode="closed" />);
+    expect(screen.getByRole("switch")).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText(/fail closed — block actions/i)).toBeInTheDocument();
+  });
+
+  it("toggles from open to closed and saves it", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ fail_mode: "closed" }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<FailModeSection initialFailMode="open" />);
+    await user.click(screen.getByRole("switch"));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/settings/fail-mode",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ fail_mode: "closed" }) })
+    );
+    await waitFor(() => expect(screen.getByRole("switch")).toHaveAttribute("aria-checked", "true"));
+    expect(refreshMock).toHaveBeenCalled();
+  });
+
+  it("reports an error and leaves the state unchanged when the save fails", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+
+    render(<FailModeSection initialFailMode="open" />);
+    await user.click(screen.getByRole("switch"));
+
+    await waitFor(() => expect(screen.getByText(/couldn't save this setting/i)).toBeInTheDocument());
+    expect(screen.getByRole("switch")).toHaveAttribute("aria-checked", "false");
   });
 });
 

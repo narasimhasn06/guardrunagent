@@ -434,11 +434,14 @@ export interface PendingInviteOut {
   created_at: string;
 }
 
+export type FailMode = "open" | "closed";
+
 export interface SettingsOut {
   org_name: string;
   has_api_key: boolean;
   slack_webhook_configured: boolean;
   slack_webhook_url: string | null;
+  fail_mode: FailMode;
   team: TeamMemberOut[];
   pending_invites: PendingInviteOut[];
 }
@@ -482,6 +485,22 @@ export async function updateSlackWebhook(webhookUrl: string | null): Promise<Sla
 
 export interface SlackTestResult {
   delivered: boolean;
+}
+
+export interface FailModeOut {
+  fail_mode: FailMode;
+}
+
+export async function updateFailMode(failMode: FailMode): Promise<FailModeOut> {
+  const response = await authorizedFetch("/settings/fail-mode", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fail_mode: failMode }),
+  });
+  if (!response.ok) {
+    throw new BackendError(response.status, `Failed to save fail mode (${response.status})`);
+  }
+  return response.json();
 }
 
 export async function testSlackWebhook(): Promise<SlackTestResult> {

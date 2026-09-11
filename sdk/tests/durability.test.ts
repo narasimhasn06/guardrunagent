@@ -56,7 +56,7 @@ function stopServer(): Promise<void> {
 }
 
 function config(): GuardrunAgentConfig {
-  return { apiKey: "test-key", endpoint: `http://127.0.0.1:${port}`, failMode: "open" };
+  return { apiKey: "test-key", endpoint: `http://127.0.0.1:${port}`, failModeOverride: undefined };
 }
 
 beforeEach(async () => {

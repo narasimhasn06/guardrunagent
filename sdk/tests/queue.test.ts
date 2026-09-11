@@ -10,7 +10,7 @@ import { enqueueAndMaybeFlush, flushAll, type QueuePaths, type QueuedEvent } fro
 const CONFIG: GuardrunAgentConfig = {
   apiKey: "test-key",
   endpoint: "https://backend.example",
-  failMode: "open",
+  failModeOverride: undefined,
 };
 
 function makeEvent(overrides: Partial<QueuedEvent> = {}): QueuedEvent {

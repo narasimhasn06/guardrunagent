@@ -155,6 +155,14 @@ class RuleOut(BaseModel):
 
 class RulesOut(BaseModel):
     rules: list[RuleOut]
+    # Org-level fail-open/fail-closed setting (orgs.fail_mode), piggybacked
+    # onto this same response rather than a separate endpoint: the SDK
+    # already polls GET /rules every 5 minutes to refresh its local rule
+    # cache (sdk/src/ruleCache.ts) and has no persistent process to hold a
+    # second value across hook invocations, so this is the one round-trip
+    # it already makes. sdk/src/config.ts's local env var/config.json
+    # override, when set, still wins over this on the SDK side.
+    fail_mode: Literal["open", "closed"] = "open"
 
 
 class RuleCreateIn(BaseModel):
@@ -268,6 +276,7 @@ class SettingsOut(BaseModel):
     has_api_key: bool
     slack_webhook_configured: bool
     slack_webhook_url: str | None
+    fail_mode: Literal["open", "closed"]
     team: list[TeamMemberOut]
     pending_invites: list[PendingInviteOut]
 
@@ -283,6 +292,14 @@ class SlackWebhookIn(BaseModel):
 class SlackWebhookOut(BaseModel):
     slack_webhook_configured: bool
     slack_webhook_url: str | None
+
+
+class FailModeIn(BaseModel):
+    fail_mode: Literal["open", "closed"]
+
+
+class FailModeOut(BaseModel):
+    fail_mode: Literal["open", "closed"]
 
 
 class SlackTestResult(BaseModel):

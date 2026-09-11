@@ -21,6 +21,7 @@ Login (email/password or Google)
         │     └── Activity Log
         └── Settings
               ├── API Key
+              ├── Guardrail Availability (fail-open / fail-closed)
               ├── Slack Integration
               └── Team / Users
 ```
@@ -108,6 +109,7 @@ Two tabs: **Rules** and **Activity Log**
 
 ### 3.6 Settings
 - **API Key:** show masked key, "regenerate" button (with confirmation — regenerating breaks existing SDK installs)
+- **Guardrail Availability** (added during implementation, promoting docs/05-architecture-document.md Section 8's client-side-only gap to a real setting): one instant-apply toggle switch, same visual language as the Rules tab's "Enabled" toggle — "Fail open" (default) vs. "Fail closed," with copy explaining what it controls (what an agent's action does when GuardrunAgent's own backend is unreachable during a guardrail check). No separate Save step; the toggle applies immediately, matching the Rules tab convention rather than the Slack section's form+Save pattern.
 - **Slack Integration:** manual webhook URL paste, built for MVP simplicity as planned; the "Connect Slack" OAuth flow alternative was not built — a pasted Incoming Webhook URL is the only supported path. Test button sends a sample alert.
 - **Team/Users:** simple list + invite-by-email, role toggle (Admin/Member) — no granular permissions needed at MVP. Invited members sign in via the same Login screen (email/password or Google), and are linked to the org on first login.
 

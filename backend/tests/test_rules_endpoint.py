@@ -92,11 +92,31 @@ class TestGetRules:
             response = client.get("/rules")
 
         assert response.status_code == 200
-        assert response.json() == {"rules": []}
+        assert response.json() == {"rules": [], "fail_mode": "open"}
 
     def test_missing_both_credentials_is_rejected(self, client):
         response = client.get("/rules")
         assert response.status_code == 401
+
+    def test_includes_the_orgs_fail_mode(self, client):
+        _override_rules_auth_as_machine()
+        fake = FakeSupabase(table_data={"guardrail_rules": [], "orgs": {"fail_mode": "closed"}})
+
+        with patch("app.routers.rules.get_supabase", return_value=fake):
+            response = client.get("/rules")
+
+        assert response.status_code == 200
+        assert response.json()["fail_mode"] == "closed"
+
+    def test_defaults_to_open_when_the_org_row_is_missing(self, client):
+        _override_rules_auth_as_machine()
+        fake = FakeSupabase(table_data={"guardrail_rules": []})
+
+        with patch("app.routers.rules.get_supabase", return_value=fake):
+            response = client.get("/rules")
+
+        assert response.status_code == 200
+        assert response.json()["fail_mode"] == "open"
 
 
 class TestUpdateRule:
@@ -266,7 +286,7 @@ class TestEnableStarterRules:
             response = client.post("/rules/starter")
 
         assert response.status_code == 201
-        assert response.json() == {"rules": []}
+        assert response.json() == {"rules": [], "fail_mode": "open"}
         assert not any(c[0] == "insert" for c in fake.recorded_calls)
 
     def test_requires_jwt_auth(self, client):
