@@ -126,9 +126,7 @@ describe("password-reset visibility", () => {
     await user.type(screen.getByLabelText("Email"), "someone@example.com");
     await user.click(screen.getByRole("button", { name: "Forgot password?" }));
 
-    expect(resetPasswordForEmailMock).toHaveBeenCalledWith("someone@example.com", {
-      redirectTo: `${window.location.origin}/auth/callback?next=/settings`,
-    });
+    expect(resetPasswordForEmailMock).toHaveBeenCalledWith("someone@example.com");
     await waitFor(() =>
       expect(screen.getByText(/if an account with that email exists/i)).toBeInTheDocument()
     );

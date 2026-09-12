@@ -655,3 +655,35 @@ rationale lives in the referenced code's own comments.
   belong to an organization" the pre-existing check already used.
   Doesn't retroactively fix orgs already duplicated in production by
   this race -- those need manual cleanup via SQL.
+- **Forgot-password links had the exact same email-scanner-burns-the-
+  token bug as invites, plus a second gap: even a working link never let
+  the user actually set a new password.** docs/04-ui-ux-design.md
+  originally said this was "delegated entirely to Supabase Auth's
+  built-in reset email" -- untested until now. `components/login-
+  form.tsx`'s `handleForgotPassword` called `resetPasswordForEmail` with
+  `redirectTo: .../auth/callback?next=/settings`; Supabase's default
+  "Reset Password" template links via `{{ .ConfirmationURL }}`, the same
+  auto-consuming link the invite template used before its own fix (see
+  the entry above on that incident) -- and the reported symptom was the
+  identical signature, `otp_expired`/"Email link is invalid or has
+  expired" on a link only minutes old. Separately, even ignoring that,
+  `/auth/callback`'s success path just redirects to `/settings` -- there
+  was no "set a new password" form anywhere in this codebase, so a
+  working reset link would have landed the user back in the app still
+  on their old password with nothing to change it. Fixed by extending
+  the invite flow's own click-gated page rather than building a second
+  one: `dashboard/app/auth/confirm/page.tsx` now reads an optional
+  `type` query param (`invite`, the default, or `recovery`) alongside
+  `token_hash`. Both call the same `verifyOtp({ token_hash, type })` on
+  an explicit button click, never on page load, for the identical
+  scanner-immunity reason as before -- but recovery doesn't redirect
+  straight to `/` after verifying like invite does; it moves to a second
+  step, a plain `supabase.auth.updateUser({ password })` call from an
+  actual "set a new password" form, before redirecting. `login-
+  form.tsx`'s `resetPasswordForEmail` call drops `redirectTo` entirely
+  (mirrors `_send_invite_email` dropping `redirect_to` in the invite
+  fix) -- the link now comes entirely from the Supabase "Reset Password"
+  template, corrected the same way as "Invite user" was, plus
+  `&type=recovery` (see DEPLOYMENT.md). An invite link with no `type` at
+  all still defaults to invite behavior, so the existing "Invite user"
+  template needs no changes.

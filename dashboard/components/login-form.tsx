@@ -102,9 +102,13 @@ export function LoginForm() {
       return;
     }
 
-    await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/callback?next=/settings`,
-    });
+    // No redirectTo here -- the link the user actually clicks comes
+    // entirely from Supabase's "Reset Password" email template (see
+    // DEPLOYMENT.md), which points at /auth/confirm?token_hash=...
+    // &type=recovery rather than this call's own default
+    // {{ .ConfirmationURL }} link, for the same email-scanner-burns-the-
+    // token reason the invite flow was fixed for (see CLAUDE.md).
+    await supabase.auth.resetPasswordForEmail(email);
 
     setNotice("If an account with that email exists and uses a password, we've sent a reset link.");
   }

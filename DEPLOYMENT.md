@@ -161,6 +161,21 @@ its own Supabase project.
      transactional provider (Resend, SendGrid, Postmark, SES, ...) with
      its own domain verified before relying on invite emails reaching
      an inbox reliably.
+   - **Templates** tab -> **Reset Password**: the same
+     `{{ .ConfirmationURL }}`-consumes-the-token problem applies here too
+     -- caught live once this flow was actually tested end-to-end, after
+     the invite fix above had already shipped. Build this link from
+     `{{ .TokenHash }}` the same way, adding `&type=recovery` so
+     `/auth/confirm` knows to show the "set a new password" step instead
+     of signing straight into the dashboard (an invite link with no
+     `type` param still defaults to the invite behavior, so the existing
+     "Invite user" template doesn't need changing):
+     ```
+     https://<your-dashboard-domain>/auth/confirm?token_hash={{ .TokenHash }}&type=recovery
+     ```
+     Nothing to set for `redirect_to` here either --
+     `components/login-form.tsx`'s `handleForgotPassword` doesn't pass
+     one, for the same reason `_send_invite_email` doesn't.
 4. Decide the deploy region (`region: oregon` in `render.yaml` is a
    placeholder -- Section 5 says this should be "chosen based on where
    pilot customers are concentrated," which hasn't been decided).
