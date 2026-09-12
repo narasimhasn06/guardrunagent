@@ -130,6 +130,28 @@ class FakeQuery:
         return FakeResult(data, count)
 
 
+class FakeAuthAdmin:
+    """Fakes supabase.auth.admin -- currently just invite_user_by_email
+    (app/invites.py's _send_invite_email). Configure the outcome via
+    FakeSupabase's invite_email_error: None succeeds, an exception
+    instance (e.g. a real supabase_auth.errors.AuthApiError) makes the
+    call raise it, matching how the real admin API signals failure.
+    """
+
+    def __init__(self, client: "FakeSupabase"):
+        self._client = client
+
+    def invite_user_by_email(self, email: str, options: dict | None = None) -> None:
+        self._client.recorded_calls.append(("invite_user_by_email", email, options))
+        if self._client.invite_email_error is not None:
+            raise self._client.invite_email_error
+
+
+class FakeAuth:
+    def __init__(self, client: "FakeSupabase"):
+        self.admin = FakeAuthAdmin(client)
+
+
 class FakeSupabase:
     """table_data maps table name to one of:
 
@@ -148,17 +170,23 @@ class FakeSupabase:
       Sequence's docstring).
 
     rpc_data maps RPC function name -> the `.data` its execute() returns.
+
+    invite_email_error configures .auth.admin.invite_user_by_email (see
+    FakeAuthAdmin) -- None (default) means it succeeds.
     """
 
     def __init__(
         self,
         table_data: dict[str, Any] | None = None,
         rpc_data: dict[str, Any] | None = None,
+        invite_email_error: Exception | None = None,
     ):
         self._table_data = table_data or {}
         self._rpc_data = rpc_data or {}
         self.recorded_calls: list[tuple[str, str, Any]] = []
         self._sequence_positions: dict[tuple[str, str], int] = {}
+        self.invite_email_error = invite_email_error
+        self.auth = FakeAuth(self)
 
     def table(self, name: str) -> FakeQuery:
         return FakeQuery(self, name, self._table_data.get(name))

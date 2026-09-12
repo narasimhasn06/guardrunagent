@@ -99,7 +99,26 @@ its own Supabase project.
 2. **Confirm Auth is configured the same way on both projects**: email/
    password + Google OAuth enabled, "Confirm email" on (for safe account
    auto-linking by email, per docs/03-low-level-design.md's auth note).
-3. Decide the deploy region (`region: oregon` in `render.yaml` is a
+3. **Configure real invite email delivery** (needed for
+   `app/invites.py`'s `create_pending_invite`, added during
+   implementation -- see CLAUDE.md's decisions log), on each Supabase
+   project separately:
+   - **Authentication -> Providers -> Email -> SMTP Settings**: enable
+     "Custom SMTP" and fill in a real provider's credentials. Supabase's
+     own default sender has a low rate limit meant for local development
+     and testing only -- it is not reliable for real invite volume.
+   - **Authentication -> Email Templates -> Invite user**: customize
+     the subject/body to your own wording. This is a separate template
+     from "Confirm signup" (used for ordinary account creation) --
+     editing it doesn't touch that flow. Keep `{{ .ConfirmationURL }}`
+     (or an equivalent link built from `{{ .TokenHash }}`) in the body;
+     that's what the invited person actually clicks.
+   - Nothing to set for `redirect_to` beyond `DASHBOARD_URL` (Railway
+     variable, see below) -- `app/invites.py` builds
+     `{DASHBOARD_URL}/auth/callback` itself, the same callback route
+     Google OAuth and password-reset links already use
+     (`dashboard/app/auth/callback/route.ts`).
+4. Decide the deploy region (`region: oregon` in `render.yaml` is a
    placeholder -- Section 5 says this should be "chosen based on where
    pilot customers are concentrated," which hasn't been decided).
 

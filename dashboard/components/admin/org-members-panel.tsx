@@ -38,6 +38,7 @@ export function OrgMembersPanel({
   const [role, setRole] = useState<TeamRole>("member");
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteNotice, setInviteNotice] = useState<string | null>(null);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
@@ -48,6 +49,7 @@ export function OrgMembersPanel({
     event.preventDefault();
     setInviting(true);
     setInviteError(null);
+    setInviteNotice(null);
     try {
       const response = await fetch(`/api/admin/orgs/${orgId}/invite`, {
         method: "POST",
@@ -57,6 +59,10 @@ export function OrgMembersPanel({
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error ?? "Couldn't send the invite — try again.");
+      }
+      const invite = (await response.json()) as PendingInviteOut;
+      if (!invite.invite_email_sent) {
+        setInviteNotice(`No email was sent to ${invite.email} — they may already have an account. Let them know directly.`);
       }
       setEmail("");
       setRole("member");
@@ -140,6 +146,12 @@ export function OrgMembersPanel({
             <tr key={invite.id}>
               <td>
                 {invite.email} <span className="page-placeholder">(invited)</span>
+                {!invite.invite_email_sent && (
+                  <span className="page-placeholder" title="They may already have an account — let them know directly.">
+                    {" "}
+                    (no email sent)
+                  </span>
+                )}
               </td>
               <td className="mono">{ROLE_LABELS[invite.role]}</td>
               <td />
@@ -184,6 +196,7 @@ export function OrgMembersPanel({
           </select>
         </div>
         {inviteError && <p className="login-error">{inviteError}</p>}
+        {inviteNotice && <p className="login-notice">{inviteNotice}</p>}
         <div className="new-rule-form-actions">
           <button type="submit" className="btn btn-primary" disabled={inviting}>
             {inviting ? "Inviting…" : "Invite"}

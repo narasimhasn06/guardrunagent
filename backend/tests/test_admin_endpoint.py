@@ -125,6 +125,7 @@ class TestGetOrgMembers:
             "email": "new.hire@example.com",
             "role": "member",
             "created_at": "2026-09-10T10:00:00+00:00",
+            "invite_email_sent": True,
         }
         fake = FakeSupabase(
             table_data={
@@ -158,6 +159,7 @@ class TestInviteOrgMember:
         "email": "new.hire@example.com",
         "role": "member",
         "created_at": "2026-09-10T10:00:00+00:00",
+        "invite_email_sent": True,
     }
 
     def test_missing_auth_is_rejected(self, client):
@@ -202,7 +204,12 @@ class TestInviteOrgMember:
         assert response.json()["email"] == "new.hire@example.com"
 
         insert_calls = [c for c in fake.recorded_calls if c[0] == "insert" and c[1] == "org_invites"]
-        assert insert_calls[0][2] == {"org_id": ORG_A, "email": "new.hire@example.com", "role": "member"}
+        assert insert_calls[0][2] == {
+            "org_id": ORG_A,
+            "email": "new.hire@example.com",
+            "role": "member",
+            "invite_email_sent": True,
+        }
 
     def test_defaults_to_member_role(self, client):
         _override_platform_admin()

@@ -275,6 +275,13 @@ class PendingInviteOut(BaseModel):
     email: str
     role: Literal["admin", "member"]
     created_at: datetime
+    # Whether app/invites.py's create_pending_invite actually sent a real
+    # invite email via Supabase Auth's admin API -- false most often means
+    # this email already has a Supabase account (e.g. previously removed
+    # from an org, now re-invited), not a delivery failure to chase; the
+    # dashboard shows a note either way so an admin knows to follow up
+    # directly if it matters. See CLAUDE.md's decisions log.
+    invite_email_sent: bool
 
 
 class SettingsOut(BaseModel):
