@@ -304,6 +304,10 @@ class TestInviteTeamMember:
             response = client.post("/settings/team/invite", json={"email": "jane@example.com"})
 
         assert response.status_code == 409
+        # UX fix: the message used to just say "a team", not naming whose
+        # -- easy to misread as "already invited into the org you're
+        # inviting them to" rather than "belongs somewhere else already".
+        assert response.json()["detail"] == "This email already belongs to another Org / Team"
 
     def test_already_invited_returns_409(self, client):
         _override_jwt_auth()
@@ -467,3 +471,82 @@ class TestUpdateTeamMemberRole:
 
         assert response.status_code == 200
         assert response.json()["role"] == "admin"
+
+
+class TestRemoveTeamMember:
+    """DELETE /settings/team/:id -- removes a member from the org
+    entirely, distinct from demoting them. Added directly in response to
+    there being no way to do this except editing org_members by hand via
+    the Supabase SQL Editor.
+    """
+
+    def test_removes_the_member(self, client):
+        _override_jwt_auth()
+        other_member_id = "66666666-6666-6666-6666-666666666666"
+        fake = FakeSupabase(
+            table_data={
+                "org_members": {
+                    "select": [{"id": MEMBER_ROW["id"]}],  # only admin, but not the target being removed
+                    "delete": [{"id": other_member_id}],
+                }
+            }
+        )
+
+        with patch("app.routers.settings.get_supabase", return_value=fake):
+            response = client.delete(f"/settings/team/{other_member_id}")
+
+        assert response.status_code == 204
+        delete_calls = [c for c in fake.recorded_calls if c[0] == "delete" and c[1] == "org_members"]
+        assert len(delete_calls) == 1
+
+    def test_unknown_member_id_returns_404(self, client):
+        _override_jwt_auth()
+        fake = FakeSupabase(table_data={"org_members": {"select": [{"id": MEMBER_ROW["id"]}], "delete": []}})
+
+        with patch("app.routers.settings.get_supabase", return_value=fake):
+            response = client.delete("/settings/team/99999999-9999-9999-9999-999999999999")
+
+        assert response.status_code == 404
+
+    def test_requires_jwt_auth(self, client):
+        response = client.delete(f"/settings/team/{MEMBER_ROW['id']}")
+        assert response.status_code == 401
+
+    def test_a_member_cannot_remove_anyone(self, client):
+        _override_jwt_auth_as_member()
+        fake = FakeSupabase()
+
+        with patch("app.routers.settings.get_supabase", return_value=fake):
+            response = client.delete(f"/settings/team/{MEMBER_ROW['id']}")
+
+        assert response.status_code == 403
+        assert fake.recorded_calls == []
+
+    def test_cannot_remove_the_organizations_only_admin(self, client):
+        _override_jwt_auth()
+        fake = FakeSupabase(table_data={"org_members": {"select": [{"id": MEMBER_ROW["id"]}]}})
+
+        with patch("app.routers.settings.get_supabase", return_value=fake):
+            response = client.delete(f"/settings/team/{MEMBER_ROW['id']}")
+
+        assert response.status_code == 409
+        assert "at least one Admin" in response.json()["detail"]
+        delete_calls = [c for c in fake.recorded_calls if c[0] == "delete" and c[1] == "org_members"]
+        assert delete_calls == []  # never even attempted
+
+    def test_can_remove_one_admin_when_another_remains(self, client):
+        _override_jwt_auth()
+        other_admin_id = "55555555-5555-5555-5555-555555555555"
+        fake = FakeSupabase(
+            table_data={
+                "org_members": {
+                    "select": [{"id": MEMBER_ROW["id"]}, {"id": other_admin_id}],
+                    "delete": [{"id": MEMBER_ROW["id"]}],
+                }
+            }
+        )
+
+        with patch("app.routers.settings.get_supabase", return_value=fake):
+            response = client.delete(f"/settings/team/{MEMBER_ROW['id']}")
+
+        assert response.status_code == 204

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.auth import PlatformAdminAuth, verify_platform_admin
 from app.db import get_supabase, maybe_single_result
 from app.invites import create_pending_invite
+from app.org_members import ensure_not_last_admin
 from app.schemas import AdminOrgMembersOut, AdminOrgOut, AdminOrgsOut, PendingInviteOut, TeamInviteIn, TeamMemberOut
 
 router = APIRouter(prefix="/admin")
@@ -110,3 +111,29 @@ def invite_org_member(
 
     invite = create_pending_invite(supabase, str(org_id), body.email, body.role)
     return PendingInviteOut(**invite)
+
+
+@router.delete("/orgs/{org_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_org_member(
+    org_id: UUID, member_id: UUID, _admin: PlatformAdminAuth = Depends(verify_platform_admin)
+) -> None:
+    """Lets a Super Admin remove a member from any org, directly in
+    response to a real workaround: with no delete endpoint anywhere,
+    removing someone meant editing org_members (and auth.users) by hand
+    via the Supabase SQL Editor. Same last-admin protection as the
+    Settings version (app/routers/settings.py's remove_team_member) --
+    removing an org's only Admin is rejected the same way, whether an
+    org's own admin or a Super Admin is the one doing it.
+    """
+    supabase = get_supabase()
+    org_id_str = str(org_id)
+
+    org_row = maybe_single_result(supabase.table("orgs").select("name").eq("id", org_id_str).maybe_single())
+    if not org_row.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+    ensure_not_last_admin(supabase, org_id_str, str(member_id))
+
+    result = supabase.table("org_members").delete().eq("id", str(member_id)).eq("org_id", org_id_str).execute()
+    if not result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team member not found")

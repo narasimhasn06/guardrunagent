@@ -24,10 +24,11 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi import HTTPException
+from postgrest.exceptions import APIError
 
 from app.auth import verify_jwt
 from app.config import Settings
-from tests.fakes import FakeSupabase
+from tests.fakes import FakeSupabase, Raises, Sequence
 
 JWT_SECRET = "test-jwt-secret-that-is-long-enough-for-hs256"
 AUTH_USER_ID = "33333333-3333-3333-3333-333333333333"
@@ -257,3 +258,72 @@ def test_first_login_with_a_pending_invite_joins_that_org():
     }
     delete_calls = [c for c in fake.recorded_calls if c[0] == "delete" and c[1] == "org_invites"]
     assert len(delete_calls) == 1  # the consumed invite is removed so it can't be reused
+
+
+def test_concurrent_first_login_race_is_handled_not_500():
+    # Caught live in production: a brand-new user's very first
+    # authenticated page load fires more than one request that each land
+    # in resolve_or_join_org concurrently (the dashboard layout's GET /me
+    # and the Home page's GET /dashboard-summary, at minimum). Both see
+    # no existing org_members row and both try to insert -- the loser
+    # hits a real postgrest.exceptions.APIError (Postgres 23505, unique
+    # violation on org_members_auth_user_id_key) instead of getting back
+    # the winner's row. This simulates being the loser: the insert raises
+    # 23505, and verify_jwt must recover by re-fetching and returning the
+    # now-existing row, not crash.
+    token = _make_token(email="new.hire@example.com")
+    winners_row = {"org_id": ORG_ID, "role": "member", "email": "new.hire@example.com"}
+    duplicate_key_error = APIError(
+        {
+            "message": 'duplicate key value violates unique constraint "org_members_auth_user_id_key"',
+            "code": "23505",
+            "hint": None,
+            "details": f"Key (auth_user_id)=({AUTH_USER_ID}) already exists.",
+        }
+    )
+    fake = FakeSupabase(
+        {
+            "org_members": {"select": Sequence(None, winners_row), "insert": Raises(duplicate_key_error)},
+            "org_invites": {
+                "select": {"id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", "org_id": ORG_ID, "role": "member"},
+            },
+        }
+    )
+
+    with (
+        patch("app.auth.get_settings", return_value=_settings()),
+        patch("app.auth.get_supabase", return_value=fake),
+    ):
+        result = verify_jwt(authorization=f"Bearer {token}")
+
+    assert result.org_id == UUID(ORG_ID)
+    assert result.role == "member"
+    assert result.email == "new.hire@example.com"
+
+    # Never deleted the invite on the losing path -- the winning request
+    # already did.
+    delete_calls = [c for c in fake.recorded_calls if c[0] == "delete" and c[1] == "org_invites"]
+    assert delete_calls == []
+
+
+def test_a_genuinely_different_db_error_still_raises():
+    # ensure_not_last_admin-style safety: only the specific 23505
+    # unique-violation is treated as "a concurrent request won" -- any
+    # other database error must still surface, not be swallowed.
+    token = _make_token(email="new.hire@example.com")
+    other_error = APIError({"message": "connection reset", "code": "08006", "hint": None, "details": None})
+    fake = FakeSupabase(
+        {
+            "org_members": {"select": None, "insert": Raises(other_error)},
+            "org_invites": {
+                "select": {"id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", "org_id": ORG_ID, "role": "member"},
+            },
+        }
+    )
+
+    with (
+        patch("app.auth.get_settings", return_value=_settings()),
+        patch("app.auth.get_supabase", return_value=fake),
+    ):
+        with pytest.raises(APIError):
+            verify_jwt(authorization=f"Bearer {token}")

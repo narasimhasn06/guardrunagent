@@ -82,7 +82,7 @@ describe("OrgMembersPanel", () => {
     expect(screen.getByText(/no team members yet/i)).toBeInTheDocument();
   });
 
-  it("lists members and pending invites, read-only (no role toggle or cancel action)", () => {
+  it("lists members and pending invites -- no role toggle or cancel action, but Remove is present", () => {
     render(<OrgMembersPanel orgId={ORG_ID} team={[makeMember()]} pendingInvites={[makeInvite()]} />);
 
     expect(screen.getByText("jane@example.com")).toBeInTheDocument();
@@ -91,12 +91,84 @@ describe("OrgMembersPanel", () => {
     expect(screen.getByText(/new\.hire@example\.com/)).toBeInTheDocument();
     expect(screen.getByText("(invited)")).toBeInTheDocument();
 
-    // Unlike the member list, this platform admin can add a new member
-    // to this org (see the invite-form tests below) -- but still can't
-    // toggle an existing member's role or cancel a pending invite. Those
-    // stay with that org's own admins in their normal Settings -> Team.
+    // A platform admin can add a new member to this org and remove an
+    // existing one (see the invite-form and removing-a-member tests
+    // below) -- but still can't toggle an existing member's role or
+    // cancel a pending invite. Those stay with that org's own admins in
+    // their normal Settings -> Team.
     expect(screen.queryByRole("button", { name: /'s role/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel invite" })).not.toBeInTheDocument();
+    expect(within(memberRow).getByRole("button", { name: "Remove" })).toBeInTheDocument();
+  });
+
+  // Added directly in response to there being no way to remove a member
+  // except editing org_members by hand via the Supabase SQL Editor. See
+  // backend/app/routers/admin.py's remove_org_member.
+  describe("removing a member", () => {
+    it("asks for confirmation before removing", async () => {
+      const user = userEvent.setup();
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(
+        <OrgMembersPanel
+          orgId={ORG_ID}
+          team={[makeMember({ role: "admin" }), makeMember({ id: "other-id", email: "other@example.com", role: "member" })]}
+          pendingInvites={[]}
+        />
+      );
+      await user.click(screen.getAllByRole("button", { name: "Remove" })[1]);
+
+      expect(screen.getByText("Remove other@example.com?")).toBeInTheDocument();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("removes the member after confirming, scoped to this org", async () => {
+      const user = userEvent.setup();
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(<OrgMembersPanel orgId={ORG_ID} team={[makeMember({ role: "member" })]} pendingInvites={[]} />);
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+      await user.click(screen.getByRole("button", { name: "Yes, remove" }));
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/admin/orgs/${ORG_ID}/members/33333333-3333-3333-3333-333333333333`,
+        { method: "DELETE" }
+      );
+      await waitFor(() => expect(refreshMock).toHaveBeenCalled());
+    });
+
+    it("disables Remove for the organization's only admin", () => {
+      render(<OrgMembersPanel orgId={ORG_ID} team={[makeMember({ role: "admin" })]} pendingInvites={[]} />);
+      expect(screen.getByRole("button", { name: "Remove" })).toBeDisabled();
+    });
+
+    it("shows the backend's error message when removal is rejected", async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          json: async () => ({ error: "Every organization needs at least one Admin -- promote someone else first." }),
+        })
+      );
+
+      render(
+        <OrgMembersPanel
+          orgId={ORG_ID}
+          team={[makeMember({ role: "admin" }), makeMember({ id: "other-id", email: "other@example.com", role: "admin" })]}
+          pendingInvites={[]}
+        />
+      );
+      await user.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+      await user.click(screen.getByRole("button", { name: "Yes, remove" }));
+
+      await waitFor(() =>
+        expect(screen.getByText("Every organization needs at least one Admin -- promote someone else first.")).toBeInTheDocument()
+      );
+      expect(refreshMock).not.toHaveBeenCalled();
+    });
   });
 
   // Added after the initial read-only build -- see CLAUDE.md's decisions

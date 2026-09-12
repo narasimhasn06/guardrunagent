@@ -10,6 +10,7 @@ from app.api_keys import hash_api_key
 from app.auth import UserAuth, verify_jwt
 from app.db import get_supabase, maybe_single_result
 from app.invites import create_pending_invite
+from app.org_members import ensure_not_last_admin
 from app.schemas import (
     ApiKeyRegenerateOut,
     FailModeIn,
@@ -181,13 +182,7 @@ def update_team_member_role(
     org_id = str(auth.org_id)
 
     if body.role == "member":
-        admins_result = supabase.table("org_members").select("id").eq("org_id", org_id).eq("role", "admin").execute()
-        admin_ids = {row["id"] for row in admins_result.data or []}
-        if admin_ids == {str(member_id)}:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Every organization needs at least one Admin -- promote someone else first.",
-            )
+        ensure_not_last_admin(supabase, org_id, str(member_id))
 
     result = (
         supabase.table("org_members")
@@ -200,3 +195,23 @@ def update_team_member_role(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team member not found")
 
     return TeamMemberOut(**result.data[0])
+
+
+@router.delete("/team/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_team_member(member_id: UUID, auth: UserAuth = Depends(verify_jwt)) -> None:
+    """Removes a member from the org entirely -- distinct from demoting
+    them to Member (PATCH, above). Added directly in response to a real
+    workaround: with no delete endpoint, removing someone meant editing
+    org_members (and auth.users) by hand via the Supabase SQL Editor.
+    Same last-admin protection as demoting: removing an org's only Admin
+    is rejected the same way.
+    """
+    _require_admin(auth)
+    supabase = get_supabase()
+    org_id = str(auth.org_id)
+
+    ensure_not_last_admin(supabase, org_id, str(member_id))
+
+    result = supabase.table("org_members").delete().eq("id", str(member_id)).eq("org_id", org_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team member not found")

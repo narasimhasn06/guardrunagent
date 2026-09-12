@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { BackendError, updateTeamMemberRole, type TeamRole } from "@/lib/backend";
+import { BackendError, removeTeamMember, updateTeamMemberRole, type TeamRole } from "@/lib/backend";
 
 // Proxies the role toggle in the Team list (components/settings/team-section.tsx)
 // to the backend -- see app/api/rules/route.ts for why this indirection is needed.
@@ -11,6 +11,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   try {
     const member = await updateTeamMemberRole(id, body.role);
     return NextResponse.json(member, { status: 200 });
+  } catch (err) {
+    if (err instanceof BackendError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    throw err;
+  }
+}
+
+// Proxies the "Remove" button in the Team list to the backend.
+export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+
+  try {
+    await removeTeamMember(id);
+    return new NextResponse(null, { status: 204 });
   } catch (err) {
     if (err instanceof BackendError) {
       return NextResponse.json({ error: err.message }, { status: err.status });

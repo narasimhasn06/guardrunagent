@@ -17,7 +17,7 @@ def create_pending_invite(supabase, org_id: str, email: str, role: str) -> dict:
 
     existing_member = maybe_single_result(supabase.table("org_members").select("id").eq("email", email).maybe_single())
     if existing_member.data:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This email already belongs to a team")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This email already belongs to another Org / Team")
 
     existing_invite = maybe_single_result(supabase.table("org_invites").select("id").eq("email", email).maybe_single())
     if existing_invite.data:

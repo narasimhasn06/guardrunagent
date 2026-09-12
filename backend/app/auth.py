@@ -6,6 +6,7 @@ from uuid import UUID
 import jwt
 from fastapi import Header, HTTPException, status
 from jwt import PyJWKClient
+from postgrest.exceptions import APIError
 from pydantic import BaseModel
 
 from app.api_keys import hash_api_key
@@ -152,6 +153,20 @@ def resolve_or_join_org(supabase, auth_user_id: str, email: str) -> dict | None:
     /orgs) while a pending invite for their email still exists, orphaning
     it (their real invite forever unconsumed, and them now in a
     self-created org instead of the one that invited them).
+
+    The select-then-insert below isn't atomic, and a brand-new user's
+    very first authenticated page load fires more than one request that
+    each land here concurrently (the dashboard layout's GET /me and the
+    Home page's GET /dashboard-summary, at minimum) -- caught live in
+    production as a 500: both requests' `member` select ran before
+    either's insert committed, so both tried to insert the same
+    auth_user_id and the loser hit
+    `postgrest.exceptions.APIError` / Postgres `23505`
+    (`org_members_auth_user_id_key` unique violation) instead of an
+    unhandled crash. Caught here now: on that specific conflict, the
+    winning concurrent request already created (and is about to return,
+    or already returned) the membership, so this just re-fetches and
+    returns it instead of erroring.
     """
     member = maybe_single_result(
         supabase.table("org_members").select("org_id, role, email").eq("auth_user_id", auth_user_id).maybe_single()
@@ -167,18 +182,31 @@ def resolve_or_join_org(supabase, auth_user_id: str, email: str) -> dict | None:
     if not invite or not invite.data:
         return None
 
-    created = (
-        supabase.table("org_members")
-        .insert(
-            {
-                "org_id": invite.data["org_id"],
-                "auth_user_id": auth_user_id,
-                "email": email,
-                "role": invite.data["role"],
-            }
+    try:
+        created = (
+            supabase.table("org_members")
+            .insert(
+                {
+                    "org_id": invite.data["org_id"],
+                    "auth_user_id": auth_user_id,
+                    "email": email,
+                    "role": invite.data["role"],
+                }
+            )
+            .execute()
         )
-        .execute()
-    )
+    except APIError as exc:
+        if exc.code == "23505":  # unique_violation -- a concurrent request already won this race
+            existing = maybe_single_result(
+                supabase.table("org_members")
+                .select("org_id, role, email")
+                .eq("auth_user_id", auth_user_id)
+                .maybe_single()
+            )
+            if existing.data:
+                return existing.data
+        raise
+
     supabase.table("org_invites").delete().eq("id", invite.data["id"]).execute()
     return created.data[0]
 

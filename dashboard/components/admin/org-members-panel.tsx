@@ -9,20 +9,20 @@ const ROLE_LABELS: Record<TeamRole, string> = { admin: "Admin", member: "Member"
 
 /**
  * "Organizations" screen's drill-in view (Super Admin role) -- one org's
- * team and pending invites. The member/invite list itself stays
+ * team and pending invites. The member list itself stays mostly
  * read-only (no role toggle or cancel-invite action here) -- a platform
  * admin views another org's team to support/debug it, not take over
  * running it day-to-day; those actions stay with that org's own admins
  * in their normal Settings -> Team.
  *
- * The invite form *is* here, added after the initial read-only build
- * (see CLAUDE.md's decisions log) once real usage showed a genuine need
- * for it -- e.g. onboarding a client org's first user without a platform
- * admin needing to already be a member of that org. It creates the same
- * kind of org_invites row an org admin's own invite would (see
- * backend/app/invites.py's create_pending_invite), so that org's own
- * Settings -> Team shows and can cancel it like any other pending
- * invite.
+ * Invite (added once real usage showed a genuine need for it -- see
+ * CLAUDE.md's decisions log) and Remove (added directly in response to
+ * there being no way to do this except editing org_members by hand via
+ * the Supabase SQL Editor) are the two exceptions. Both create/consume
+ * the same rows an org admin's own actions would (see
+ * backend/app/invites.py's create_pending_invite and
+ * backend/app/org_members.py's ensure_not_last_admin), so that org's own
+ * Settings -> Team sees and can act on either one too.
  */
 export function OrgMembersPanel({
   orgId,
@@ -38,6 +38,11 @@ export function OrgMembersPanel({
   const [role, setRole] = useState<TeamRole>("member");
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [pendingActionId, setPendingActionId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+
+  const adminCount = team.filter((member) => member.role === "admin").length;
 
   async function handleInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -63,6 +68,24 @@ export function OrgMembersPanel({
     }
   }
 
+  async function handleRemoveMember(memberId: string) {
+    setPendingActionId(memberId);
+    setActionError(null);
+    try {
+      const response = await fetch(`/api/admin/orgs/${orgId}/members/${memberId}`, { method: "DELETE" });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Couldn't remove this member — try again.");
+      }
+      setConfirmRemoveId(null);
+      router.refresh();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Couldn't remove this member — try again.");
+    } finally {
+      setPendingActionId(null);
+    }
+  }
+
   return (
     <section className="home-card settings-section">
       <h2 className="home-card-title">Team</h2>
@@ -72,32 +95,67 @@ export function OrgMembersPanel({
           <tr>
             <th>Email</th>
             <th>Role</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {team.map((member) => (
-            <tr key={member.id}>
-              <td>{member.email}</td>
-              <td>{ROLE_LABELS[member.role]}</td>
-            </tr>
-          ))}
+          {team.map((member) => {
+            const isLastAdmin = member.role === "admin" && adminCount === 1;
+            return (
+              <tr key={member.id}>
+                <td>{member.email}</td>
+                <td>{ROLE_LABELS[member.role]}</td>
+                {confirmRemoveId === member.id ? (
+                  <td className="team-invite-role-cell">
+                    <span>Remove {member.email}?</span>
+                    <button
+                      type="button"
+                      className="link-button"
+                      disabled={pendingActionId === member.id}
+                      onClick={() => handleRemoveMember(member.id)}
+                    >
+                      Yes, remove
+                    </button>
+                    <button type="button" className="link-button" onClick={() => setConfirmRemoveId(null)}>
+                      Cancel
+                    </button>
+                  </td>
+                ) : (
+                  <td>
+                    <button
+                      type="button"
+                      className="link-button"
+                      disabled={isLastAdmin}
+                      title={isLastAdmin ? "Every organization needs at least one Admin" : undefined}
+                      onClick={() => setConfirmRemoveId(member.id)}
+                    >
+                      Remove
+                    </button>
+                  </td>
+                )}
+              </tr>
+            );
+          })}
           {pendingInvites.map((invite) => (
             <tr key={invite.id}>
               <td>
                 {invite.email} <span className="page-placeholder">(invited)</span>
               </td>
-              <td>{ROLE_LABELS[invite.role]}</td>
+              <td className="mono">{ROLE_LABELS[invite.role]}</td>
+              <td />
             </tr>
           ))}
           {team.length === 0 && pendingInvites.length === 0 && (
             <tr>
-              <td colSpan={2} className="page-placeholder">
+              <td colSpan={3} className="page-placeholder">
                 No team members yet.
               </td>
             </tr>
           )}
         </tbody>
       </table>
+
+      {actionError && <p className="login-error">{actionError}</p>}
 
       <form onSubmit={handleInvite} className="new-rule-form">
         <div className="new-rule-form-field">
