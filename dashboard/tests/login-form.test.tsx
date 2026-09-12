@@ -180,7 +180,7 @@ describe("sign-up submit", () => {
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/"));
   });
 
-  it("shows a check-your-email notice when confirmation is required", async () => {
+  it("shows a non-committal notice when no session comes back (covers both a genuine new signup and an already-registered email, without saying which)", async () => {
     const user = userEvent.setup();
     render(<LoginForm />);
     await switchToSignUp(user);
@@ -188,7 +188,9 @@ describe("sign-up submit", () => {
 
     await user.click(screen.getByRole("button", { name: "Create account" }));
 
-    await waitFor(() => expect(screen.getByText(/check your email to confirm/i)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/if that's a new email, check your inbox/i)).toBeInTheDocument()
+    );
   });
 
   it("shows the backend's error message on sign-up failure", async () => {

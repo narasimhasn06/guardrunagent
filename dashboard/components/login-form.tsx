@@ -75,7 +75,17 @@ export function LoginForm() {
       return;
     }
 
-    setNotice("Check your email to confirm your account, then sign in.");
+    // Deliberately non-committal about whether this succeeded: Supabase
+    // itself returns this same no-error/no-session response both for a
+    // genuine new signup (confirmation email actually sent) and for an
+    // email that already has a confirmed account (nothing sent at all,
+    // by Supabase's own anti-enumeration design for signUp -- confirmed
+    // live when re-submitting an already-registered email showed this
+    // exact notice with no email ever arriving). Branching the message
+    // on `data.user.identities.length` would tell the caller which case
+    // it was, defeating that protection -- so this covers both without
+    // claiming either happened, same pattern as handleForgotPassword.
+    setNotice("If that's a new email, check your inbox to confirm your account. If you already have an account, just sign in instead.");
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {

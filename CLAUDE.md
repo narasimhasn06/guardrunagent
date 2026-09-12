@@ -708,3 +708,54 @@ rationale lives in the referenced code's own comments.
   `&type=recovery` (see DEPLOYMENT.md). An invite link with no `type` at
   all still defaults to invite behavior, so the existing "Invite user"
   template needs no changes.
+- **Sign-up's "check your email" notice was accidentally telling the
+  truth only some of the time -- and a request to make login/signup
+  "smarter" about existing accounts was scoped down after explaining
+  why the literal ask was a real vulnerability.** Manual testing (an
+  already-registered email, wrong password, then "Create account" with
+  a different password) surfaced two things. First: `login-form.tsx`'s
+  generic "No account found, or incorrect password" on sign-in, and the
+  request to instead distinguish "wrong password" from "no such
+  account," is exactly the account-enumeration hole (OWASP-recognized)
+  that message was written to prevent -- left unchanged; see the
+  component's own docstring, already correct before this session. Second,
+  genuinely fixed: `handleSignUp` showed "Check your email to confirm
+  your account, then sign in" whenever `signUp()` returned no error and
+  no session -- true for a real new signup, but *also* Supabase's own
+  anti-enumeration behavior for `signUp()` itself: an email that already
+  has a confirmed account gets the identical no-error/no-session
+  response with nothing actually sent, specifically so the signup form
+  can't be used to test which emails are registered either. Confirmed
+  live: resubmitting a known-existing address showed the same notice
+  with no email ever arriving. `data.user.identities.length` does
+  distinguish the two cases, but branching the message on it would
+  reintroduce the exact leak Supabase's response is designed to hide --
+  so the fix is wording only, matching `handleForgotPassword`'s already-
+  established non-committal pattern: "If that's a new email, check your
+  inbox to confirm your account. If you already have an account, just
+  sign in instead."
+- **"Attach a password to a Google-only account" is now a real,
+  self-serve Settings action -- built as the safe version of a request
+  that, as literally described (detect an existing account's empty
+  password from the login form and silently save a new one into it),
+  isn't something our backend can do at all: Supabase Auth owns password
+  storage entirely, exposes no way to read or detect its presence, and
+  writing to it outside Supabase's own hashing would be unsupported and
+  dangerous.** What Supabase does support -- and what `docs/04-ui-ux-
+  design.md`'s Section 3.6 now documents -- is `supabase.auth.
+  updateUser({ password })` from an already-authenticated session, the
+  same call `/auth/confirm`'s recovery step already uses. New
+  `components/settings/password-section.tsx`: a client component that
+  reads the signed-in user's own `identities` array (client-side only --
+  our backend's `/settings` has no reason to know this) and renders a
+  "Set a password" form only when no `provider: "email"` identity exists
+  yet (a Google-only account); invisible otherwise, since this is one-
+  time setup, not a general change-password screen. Confirmed this
+  closes a real gap, not a re-fix of something already broken: this
+  project's email-linked identities already prevented the feared bad
+  outcome (a duplicate account, or a Google account's slot silently
+  overwritten) if such a user submitted the email/password form instead
+  -- Supabase's signUp anti-enumeration response above just returns a
+  no-op. The actual gap was narrower: no supported way existed for a
+  Google-only user to deliberately add a password, short of the
+  unrelated "Forgot password?" flow.
