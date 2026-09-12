@@ -548,6 +548,13 @@ export async function updateTeamMemberRole(memberId: string, role: TeamRole): Pr
     body: JSON.stringify({ role }),
   });
   if (!response.ok) {
+    if (response.status === 409) {
+      // Demoting the org's last Admin -- see backend/app/routers/settings.py's
+      // update_team_member_role. Surfaced verbatim rather than a generic
+      // message so the reason (not just "it failed") reaches the user.
+      const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+      throw new BackendError(409, body?.detail ?? "Every organization needs at least one Admin.");
+    }
     throw new BackendError(response.status, `Failed to update team member role (${response.status})`);
   }
   return response.json();

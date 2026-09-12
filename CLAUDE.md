@@ -313,3 +313,26 @@ rationale lives in the referenced code's own comments.
   `inviteOrgMember` directly, which wraps `authorizedFetch` and needs
   the server-only Supabase client; `inviteOrgMember` is called only from
   inside that Route Handler, same pattern as `createRule`/`updateRule`.
+- **Demoting an org's last Admin was a self-lockout regression, introduced
+  by the previous entry's own `isAdmin` gating.** Caught during a second
+  round of manual verification: an Admin demoting *themselves* to Member
+  (the common case of clicking their own role toggle) used to succeed
+  outright -- but with the Team-management fix above now hiding all of
+  `components/settings/team-section.tsx`'s controls once `isAdmin` is
+  false, that same click removed the only way back (the toggle button
+  they'd need to promote themselves again). Before the Team-management
+  fix this was harmless: the toggle rendered for everyone regardless of
+  role, so a self-demoted Admin could just click it again. Fixed at the
+  root, not just in the UI: `app/routers/settings.py`'s
+  `update_team_member_role` now 409s a demotion (`role: "member"`) that
+  would leave an org with zero Admins -- counts admins via a single
+  `org_members` select scoped to the org, checked only on the demotion
+  path (promotions are never blocked). `lib/backend.ts`'s
+  `updateTeamMemberRole` extracts and surfaces that 409's real `detail`
+  message (same pattern `inviteTeamMember` already used), and
+  `team-section.tsx` now has a `roleError` state showing it, plus
+  pre-emptively disables the toggle for an org's sole remaining Admin
+  (computed client-side from the `team` prop already in hand -- no extra
+  request) so the situation is avoided rather than just rejected after
+  the fact. The backend check stays the real gate either way, for a race
+  between two admins demoting each other at once.

@@ -165,13 +165,35 @@ def cancel_invite(invite_id: UUID, auth: UserAuth = Depends(verify_jwt)) -> None
 def update_team_member_role(
     member_id: UUID, body: TeamRoleUpdateIn, auth: UserAuth = Depends(verify_jwt)
 ) -> TeamMemberOut:
+    """Bug fix: demoting the org's only Admin to Member -- including an
+    Admin demoting *themselves*, the common case -- used to succeed with
+    no way back: the role-toggle button that would promote them again is
+    gated on `isAdmin` (components/settings/team-section.tsx), which
+    becomes false the moment their own role does. Rejects that specific
+    case with a 409 instead; an org with 2+ admins can still demote any
+    one of them freely. The dashboard also disables the toggle for the
+    last admin's own row as a UI convenience, but this check is the real
+    gate -- a race between two admins demoting each other simultaneously
+    must still be caught here.
+    """
     _require_admin(auth)
     supabase = get_supabase()
+    org_id = str(auth.org_id)
+
+    if body.role == "member":
+        admins_result = supabase.table("org_members").select("id").eq("org_id", org_id).eq("role", "admin").execute()
+        admin_ids = {row["id"] for row in admins_result.data or []}
+        if admin_ids == {str(member_id)}:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Every organization needs at least one Admin -- promote someone else first.",
+            )
+
     result = (
         supabase.table("org_members")
         .update({"role": body.role})
         .eq("id", str(member_id))
-        .eq("org_id", str(auth.org_id))  # never let one org edit another's member
+        .eq("org_id", org_id)  # never let one org edit another's member
         .execute()
     )
     if not result.data:

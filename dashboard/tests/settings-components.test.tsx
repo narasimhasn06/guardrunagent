@@ -242,7 +242,15 @@ describe("TeamSection", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => makeMember({ role: "member" }) });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<TeamSection team={[makeMember({ role: "admin" })]} pendingInvites={[]} isAdmin />);
+    // Two admins here (not just one) -- toggling jane isn't blocked by
+    // the last-admin guard below, which is tested separately.
+    render(
+      <TeamSection
+        team={[makeMember({ role: "admin" }), makeMember({ id: "other-id", email: "other@example.com", role: "admin" })]}
+        pendingInvites={[]}
+        isAdmin
+      />
+    );
     await user.click(screen.getByRole("button", { name: /jane@example.com's role/i }));
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -250,6 +258,59 @@ describe("TeamSection", () => {
       expect.objectContaining({ method: "PATCH", body: JSON.stringify({ role: "member" }) })
     );
     await waitFor(() => expect(refreshMock).toHaveBeenCalled());
+  });
+
+  // Bug fix: demoting the org's only Admin (most often self-demotion)
+  // used to succeed with no way back -- the toggle that would promote
+  // them again is gated on isAdmin, which flips to false the moment
+  // their own role does. See backend/app/routers/settings.py's
+  // update_team_member_role for the server-side guard this mirrors.
+  it("disables the role toggle for the organization's only admin", () => {
+    render(<TeamSection team={[makeMember({ role: "admin" })]} pendingInvites={[]} isAdmin />);
+    expect(screen.getByRole("button", { name: /jane@example.com's role/i })).toBeDisabled();
+  });
+
+  it("does not disable the toggle when another admin exists", () => {
+    render(
+      <TeamSection
+        team={[makeMember({ role: "admin" }), makeMember({ id: "other-id", email: "other@example.com", role: "admin" })]}
+        pendingInvites={[]}
+        isAdmin
+      />
+    );
+    expect(screen.getByRole("button", { name: /jane@example.com's role/i })).not.toBeDisabled();
+  });
+
+  it("does not disable a plain Member's toggle even when they're the only team row", () => {
+    render(<TeamSection team={[makeMember({ role: "member" })]} pendingInvites={[]} isAdmin />);
+    expect(screen.getByRole("button", { name: /jane@example.com's role/i })).not.toBeDisabled();
+  });
+
+  it("shows the backend's error message when a role change is rejected", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: "Every organization needs at least one Admin -- promote someone else first." }),
+      })
+    );
+
+    // Two admins in props (so the button isn't disabled client-side),
+    // simulating a race where the backend's own check still catches it.
+    render(
+      <TeamSection
+        team={[makeMember({ role: "admin" }), makeMember({ id: "other-id", email: "other@example.com", role: "admin" })]}
+        pendingInvites={[]}
+        isAdmin
+      />
+    );
+    await user.click(screen.getByRole("button", { name: /jane@example.com's role/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Every organization needs at least one Admin -- promote someone else first.")).toBeInTheDocument()
+    );
+    expect(refreshMock).not.toHaveBeenCalled();
   });
 
   it("cancels a pending invite", async () => {
