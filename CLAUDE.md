@@ -564,3 +564,54 @@ rationale lives in the referenced code's own comments.
   `dashboard/tests/proxy.test.ts` is this file's first test coverage at
   all -- confirmed it actually reproduces the bug (fails without the
   fix, passes with it) rather than trusting the read of the code alone.
+- **Invite links now require an explicit button click, not just a page
+  load -- clicking the email link was never actually the invited
+  person's first hit on it.** Caught live in production, with both
+  earlier fixes above already deployed and working: even a genuinely
+  isolated, single-click test still failed. Supabase's own Auth Logs
+  (Logs -> filter Pathname = `/auth/v1/verify`) showed the exact answer:
+  the same invite token was verified **four separate times** within 17
+  minutes, the first just **49 seconds** after the invite was sent --
+  far too fast to be a human opening Gmail, finding the email, and
+  clicking. That first hit was an automated link-safety scanner (Gmail's
+  own, most likely), and since Supabase invite tokens are single-use
+  **forever, not time-limited** (the email OTP's 1-hour expiry was never
+  the issue -- every hit here was well inside that window), the scan
+  consumed the token's one-and-only use before the real human ever
+  clicked. The old `/auth/confirm` (previous two entries) auto-processed
+  whatever the URL fragment held on page load -- exactly the behavior
+  that let a mere fetch consume it. A second, related finding from the
+  same investigation: that old page's success check was `getSession()`
+  returning *any* session, which a shared-incognito-window test showed
+  could be fooled by an unrelated pre-existing session (e.g. a Super
+  Admin's) already sitting in the browser -- masking a failed exchange
+  as if it had succeeded.
+  Fixed by no longer letting page-load alone touch the token at all.
+  Supabase's "Invite user" email template (edited directly in the
+  Supabase dashboard, not code) no longer uses its own auto-generated
+  `{{ .ConfirmationURL }}` link -- that link *is* the token-consuming
+  action. It now links to `{DASHBOARD_URL}/auth/confirm?token_hash=
+  {{ .TokenHash }}` instead: loading that page does nothing. The token
+  is only consumed by `dashboard/app/auth/confirm/page.tsx`'s explicit
+  `supabase.auth.verifyOtp({token_hash, type: "invite"})` call, fired
+  from a real "Accept invitation" button's `onClick` -- a scanner
+  fetches pages, it doesn't simulate clicks. `verifyOtp`'s own
+  `{data, error}` response is checked directly now instead of a generic
+  `getSession()` truthiness check, which also closes the
+  pre-existing-session masking gap as a side effect: a failure is a
+  failure regardless of what unrelated session the browser already
+  held. `backend/app/invites.py`'s `_send_invite_email` no longer passes
+  `redirect_to`/`options` at all -- the link now comes entirely from the
+  template, and `{{ .TokenHash }}` is populated from the invite itself
+  independent of it; this also fixed 4 unrelated pre-existing test
+  failures in this sandbox that traced back to `get_settings()` being
+  called at all in this function. Real UX cost, stated plainly: one more
+  click than before (email link -> this page -> button), the tradeoff
+  for the token surviving contact with a scanner. Known limitation, not
+  fully closed: a small number of enterprise security gateways run full
+  headless browsers that could in principle simulate a click too --
+  defeats Gmail's own scanning (confirmed live) and most others, not
+  provably all of them. Whether password-reset email links have this
+  same exposure (they use a different, PKCE-based flow -- see the first
+  `/auth/confirm` entry above) was not investigated; no failure has been
+  reported there.
