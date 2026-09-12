@@ -36,6 +36,16 @@ export function TeamSection({
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
+
+  // Bug fix: demoting the org's only Admin (most often an Admin
+  // demoting themselves) used to succeed with no way back -- the role
+  // toggle is gated on isAdmin, which flips to false the moment their
+  // own role does. Disabling the toggle for the last admin's own row
+  // avoids the situation entirely; backend/app/routers/settings.py's
+  // update_team_member_role rejects it either way, for a race between
+  // two admins acting at once.
+  const adminCount = team.filter((member) => member.role === "admin").length;
 
   async function handleInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -74,14 +84,20 @@ export function TeamSection({
 
   async function handleToggleRole(member: TeamMemberOut) {
     setPendingActionId(member.id);
+    setRoleError(null);
     try {
       const response = await fetch(`/api/settings/team/${member.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: member.role === "admin" ? "member" : "admin" }),
       });
-      if (!response.ok) throw new Error();
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Couldn't change this member's role — try again.");
+      }
       router.refresh();
+    } catch (err) {
+      setRoleError(err instanceof Error ? err.message : "Couldn't change this member's role — try again.");
     } finally {
       setPendingActionId(null);
     }
@@ -99,26 +115,30 @@ export function TeamSection({
           </tr>
         </thead>
         <tbody>
-          {team.map((member) => (
-            <tr key={member.id}>
-              <td>{member.email}</td>
-              <td>
-                {isAdmin ? (
-                  <button
-                    type="button"
-                    className="role-toggle"
-                    aria-label={`Change ${member.email}'s role (currently ${ROLE_LABELS[member.role]})`}
-                    disabled={pendingActionId === member.id}
-                    onClick={() => handleToggleRole(member)}
-                  >
-                    {ROLE_LABELS[member.role]}
-                  </button>
-                ) : (
-                  ROLE_LABELS[member.role]
-                )}
-              </td>
-            </tr>
-          ))}
+          {team.map((member) => {
+            const isLastAdmin = member.role === "admin" && adminCount === 1;
+            return (
+              <tr key={member.id}>
+                <td>{member.email}</td>
+                <td>
+                  {isAdmin ? (
+                    <button
+                      type="button"
+                      className="role-toggle"
+                      aria-label={`Change ${member.email}'s role (currently ${ROLE_LABELS[member.role]})`}
+                      disabled={pendingActionId === member.id || isLastAdmin}
+                      title={isLastAdmin ? "Every organization needs at least one Admin" : undefined}
+                      onClick={() => handleToggleRole(member)}
+                    >
+                      {ROLE_LABELS[member.role]}
+                    </button>
+                  ) : (
+                    ROLE_LABELS[member.role]
+                  )}
+                </td>
+              </tr>
+            );
+          })}
           {pendingInvites.map((invite) => (
             <tr key={invite.id}>
               <td>
@@ -148,6 +168,8 @@ export function TeamSection({
           )}
         </tbody>
       </table>
+
+      {roleError && <p className="login-error">{roleError}</p>}
 
       {isAdmin && (
         <form onSubmit={handleInvite} className="new-rule-form">

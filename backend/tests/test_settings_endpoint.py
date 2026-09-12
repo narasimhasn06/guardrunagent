@@ -415,3 +415,55 @@ class TestUpdateTeamMemberRole:
 
         assert response.status_code == 403
         assert fake.recorded_calls == []
+
+    def test_cannot_demote_the_organizations_only_admin(self, client):
+        # Bug fix: an Admin demoting themselves (the common case) used to
+        # succeed with no way back -- the role-toggle button that would
+        # promote them again is gated on their own role
+        # (components/settings/team-section.tsx's isAdmin), which flips
+        # to false the moment this succeeds.
+        _override_jwt_auth()
+        fake = FakeSupabase(
+            table_data={"org_members": {"select": [{"id": MEMBER_ROW["id"]}]}}
+        )
+
+        with patch("app.routers.settings.get_supabase", return_value=fake):
+            response = client.patch(f"/settings/team/{MEMBER_ROW['id']}", json={"role": "member"})
+
+        assert response.status_code == 409
+        assert "at least one Admin" in response.json()["detail"]
+        update_calls = [c for c in fake.recorded_calls if c[0] == "update" and c[1] == "org_members"]
+        assert update_calls == []  # never even attempted
+
+    def test_can_demote_one_admin_when_another_remains(self, client):
+        _override_jwt_auth()
+        other_admin_id = "55555555-5555-5555-5555-555555555555"
+        updated_row = {**MEMBER_ROW, "role": "member"}
+        fake = FakeSupabase(
+            table_data={
+                "org_members": {
+                    "select": [{"id": MEMBER_ROW["id"]}, {"id": other_admin_id}],
+                    "update": [updated_row],
+                }
+            }
+        )
+
+        with patch("app.routers.settings.get_supabase", return_value=fake):
+            response = client.patch(f"/settings/team/{MEMBER_ROW['id']}", json={"role": "member"})
+
+        assert response.status_code == 200
+        assert response.json()["role"] == "member"
+
+    def test_promoting_a_member_to_admin_is_never_blocked(self, client):
+        # The last-admin guard only ever applies to a demotion
+        # (body.role == "member") -- promoting is always allowed
+        # regardless of how many admins already exist.
+        _override_jwt_auth()
+        promoted_row = {**MEMBER_ROW, "role": "admin"}
+        fake = FakeSupabase(table_data={"org_members": {"update": [promoted_row]}})
+
+        with patch("app.routers.settings.get_supabase", return_value=fake):
+            response = client.patch(f"/settings/team/{MEMBER_ROW['id']}", json={"role": "admin"})
+
+        assert response.status_code == 200
+        assert response.json()["role"] == "admin"
