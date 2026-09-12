@@ -475,3 +475,21 @@ rationale lives in the referenced code's own comments.
   `inviteNotice` to `"Invite sent to {email}."` when
   `invite_email_sent` is `true`, reusing the same state/element as the
   existing warning notice rather than adding a second one.
+- **The Supabase client now forces HTTP/1.1.** Caught live in
+  production, reproducible on demand (not a one-off): a fresh Google
+  sign-in's first `GET /me` intermittently 500'd with
+  `httpx.RemoteProtocolError: ConnectionTerminated` -- `last_stream_id`
+  in the traceback is an HTTP/2-only concept. Root cause: both
+  postgrest-py and `supabase_auth` hardcode `http2=True` on the
+  httpx.Client they build internally unless one is passed in, and
+  neither `app/db.py` nor anything else in this codebase ever did.
+  Most likely an HTTP/2 connection-pool race against Supabase's edge
+  closing an idle connection out from under a reused one -- surfaced
+  now because production had sat idle since its last deploy before
+  this session's testing. `app/db.py`'s `get_supabase()` now passes
+  `ClientOptions(httpx_client=httpx.Client(http2=False))` to
+  `create_client()`, which `supabase-py` wires through to both its
+  postgrest and auth clients from one place. HTTP/1.1 doesn't pool
+  connections the same way and doesn't have this failure mode, at the
+  cost of one connection per concurrent request instead of multiplexing
+  several over one -- a non-issue at this project's traffic volume.
