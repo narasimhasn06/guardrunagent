@@ -9,9 +9,11 @@ from __future__ import annotations
 from unittest.mock import patch
 from uuid import UUID
 
+from postgrest.exceptions import APIError
+
 from app.auth import JwtIdentity, verify_jwt_identity
 from app.main import app
-from tests.fakes import FakeSupabase
+from tests.fakes import FakeSupabase, Raises
 
 AUTH_USER_ID = "33333333-3333-3333-3333-333333333333"
 ORG_ID = "11111111-1111-1111-1111-111111111111"
@@ -171,3 +173,40 @@ class TestCreateOrg:
                 },
             )
         ]
+
+    def test_concurrent_double_submission_is_a_409_not_a_duplicate_org(self, client):
+        # Caught live in production: the existence check above isn't
+        # atomic with the org+membership inserts, so two near-simultaneous
+        # POST /orgs for the same user (a double-click, a slow request
+        # retried) can both pass it -- the Super Admin Organizations page
+        # showed the same org name listed twice, each with its own
+        # member, proving both fully succeeded instead of the loser being
+        # rejected. This simulates being the loser: the org insert
+        # succeeds (org_members.auth_user_id is unique, not orgs.name),
+        # but the org_members insert then hits a real 23505.
+        _override_identity(email="jane@example.com")
+        duplicate_key_error = APIError(
+            {
+                "message": 'duplicate key value violates unique constraint "org_members_auth_user_id_key"',
+                "code": "23505",
+                "hint": None,
+                "details": f"Key (auth_user_id)=({AUTH_USER_ID}) already exists.",
+            }
+        )
+        fake = FakeSupabase(
+            table_data={
+                "org_members": {"select": None, "insert": Raises(duplicate_key_error)},
+                "orgs": {"insert": [{"id": ORG_ID}]},
+            }
+        )
+
+        with patch("app.routers.orgs.get_supabase", return_value=fake):
+            response = client.post("/orgs", json={"org_name": "Organization Name 101"})
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == "You already belong to an organization"
+
+        # The org this losing request created gets cleaned up rather than
+        # left behind as an orphan with zero members.
+        org_delete = [c for c in fake.recorded_calls if c[0] == "delete" and c[1] == "orgs"]
+        assert len(org_delete) == 1
