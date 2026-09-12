@@ -120,9 +120,13 @@ its own Supabase project.
      invited person actually clicks.
    - Nothing to set for `redirect_to` beyond `DASHBOARD_URL` (Railway
      variable, see below) -- `app/invites.py` builds
-     `{DASHBOARD_URL}/auth/callback` itself, the same callback route
-     Google OAuth and password-reset links already use
-     (`dashboard/app/auth/callback/route.ts`).
+     `{DASHBOARD_URL}/auth/confirm` itself. **Not** the same
+     `/auth/callback` route Google OAuth and password-reset use --
+     admin-issued invite links are always Supabase's implicit flow (an
+     access token in the URL fragment, invisible server-side), which
+     `/auth/callback`'s server-side `?code=` exchange can't handle.
+     `dashboard/app/auth/confirm/page.tsx` is the client-side page built
+     for that case -- see CLAUDE.md's decisions log.
    - **Port must be a real SMTP port** (465 for SSL, 587 for STARTTLS) --
      any other value fails silently from the app's point of view: GoTrue
      hangs trying to connect, eventually 504s, and this project's own

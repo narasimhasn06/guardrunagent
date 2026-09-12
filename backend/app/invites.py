@@ -30,9 +30,20 @@ def _send_invite_email(supabase, email: str) -> bool:
     actually sends (see create_pending_invite below) -- mirrors
     app/alerting.py's post_to_slack, which tracks delivery as a bool
     (guardrail_activity.alert_sent) rather than raising either.
+
+    redirect_to points at /auth/confirm, not /auth/callback --
+    admin-issued links like this one are always Supabase's implicit
+    flow (an access token in the URL *fragment*, invisible server-side),
+    since PKCE needs a client-generated code_verifier that doesn't exist
+    for a link generated server-side on our backend's behalf.
+    /auth/callback only ever handles the `?code=` PKCE exchange Google
+    OAuth and password-reset use -- caught live when an invite link
+    landed on /login?error=auth with the token stranded, unexchanged, in
+    the fragment. dashboard/app/auth/confirm/page.tsx is the client-side
+    counterpart that can actually see and process it.
     """
     settings = get_settings()
-    options = {"redirect_to": f"{settings.dashboard_url.rstrip('/')}/auth/callback"} if settings.dashboard_url else None
+    options = {"redirect_to": f"{settings.dashboard_url.rstrip('/')}/auth/confirm"} if settings.dashboard_url else None
 
     try:
         supabase.auth.admin.invite_user_by_email(email, options=options)
