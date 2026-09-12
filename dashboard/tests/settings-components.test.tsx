@@ -476,6 +476,35 @@ describe("TeamSection", () => {
     );
   });
 
+  it("clears the invite notice once another action is taken on the screen", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) =>
+        url === "/api/settings/team/invite"
+          ? Promise.resolve({ ok: true, json: async () => makeInvite() })
+          : Promise.resolve({ ok: true })
+      )
+    );
+
+    render(
+      <TeamSection
+        team={[makeMember({ role: "admin" }), makeMember({ id: "other-id", email: "other@example.com", role: "admin" })]}
+        pendingInvites={[]}
+        isAdmin
+      />
+    );
+
+    await user.type(screen.getByLabelText("Invite by email"), "new.hire@example.com");
+    await user.click(screen.getByRole("button", { name: "Invite" }));
+    await waitFor(() => expect(screen.getByText("Invite sent to new.hire@example.com.")).toBeInTheDocument());
+
+    await user.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+    await user.click(screen.getByRole("button", { name: "Yes, remove" }));
+
+    await waitFor(() => expect(screen.queryByText("Invite sent to new.hire@example.com.")).not.toBeInTheDocument());
+  });
+
   it("marks a pending invite that never got an email", () => {
     render(<TeamSection team={[]} pendingInvites={[makeInvite({ invite_email_sent: false })]} isAdmin />);
     expect(screen.getByText("(no email sent)")).toBeInTheDocument();

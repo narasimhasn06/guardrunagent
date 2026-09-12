@@ -79,6 +79,7 @@ export function OrgMembersPanel({
   async function handleRemoveMember(memberId: string) {
     setPendingActionId(memberId);
     setActionError(null);
+    setInviteNotice(null);
     try {
       const response = await fetch(`/api/admin/orgs/${orgId}/members/${memberId}`, { method: "DELETE" });
       if (!response.ok) {

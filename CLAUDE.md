@@ -615,3 +615,15 @@ rationale lives in the referenced code's own comments.
   same exposure (they use a different, PKCE-based flow -- see the first
   `/auth/confirm` entry above) was not investigated; no failure has been
   reported there.
+- **The invite-sent notice used to linger indefinitely once shown --
+  clearing it only on a new invite attempt, never on any other action.**
+  Caught during manual verification of the whole invite flow now
+  working end to end: sending an invite showed "Invite sent to
+  ...", then removing that same member left the stale success message
+  on screen with no connection to what had just happened.
+  `components/settings/team-section.tsx`'s `handleCancelInvite`,
+  `handleToggleRole`, and `handleRemoveMember`, and
+  `components/admin/org-members-panel.tsx`'s `handleRemoveMember`, now
+  all clear `inviteNotice` at the start, same as `handleInvite` already
+  did for a *new* invite attempt -- any action taken on the screen
+  dismisses a stale notice from a previous one.

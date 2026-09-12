@@ -88,6 +88,7 @@ export function TeamSection({
 
   async function handleCancelInvite(id: string) {
     setPendingActionId(id);
+    setInviteNotice(null);
     try {
       const response = await fetch(`/api/settings/team/invites/${id}`, { method: "DELETE" });
       if (!response.ok) throw new Error();
@@ -100,6 +101,7 @@ export function TeamSection({
   async function handleToggleRole(member: TeamMemberOut) {
     setPendingActionId(member.id);
     setActionError(null);
+    setInviteNotice(null);
     try {
       const response = await fetch(`/api/settings/team/${member.id}`, {
         method: "PATCH",
@@ -121,6 +123,7 @@ export function TeamSection({
   async function handleRemoveMember(memberId: string) {
     setPendingActionId(memberId);
     setActionError(null);
+    setInviteNotice(null);
     try {
       const response = await fetch(`/api/settings/team/${memberId}`, { method: "DELETE" });
       if (!response.ok) {
