@@ -198,6 +198,17 @@ describe("OrgMembersPanel", () => {
       await waitFor(() => expect(refreshMock).toHaveBeenCalled());
     });
 
+    it("shows a success notice when the invite email was sent", async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => makeInvite() }));
+
+      render(<OrgMembersPanel orgId={ORG_ID} team={[]} pendingInvites={[]} />);
+      await user.type(screen.getByLabelText("Invite by email"), "new.hire@example.com");
+      await user.click(screen.getByRole("button", { name: "Invite" }));
+
+      await waitFor(() => expect(screen.getByText("Invite sent to new.hire@example.com.")).toBeInTheDocument());
+    });
+
     it("shows a notice when the invite was created but no email was sent", async () => {
       const user = userEvent.setup();
       vi.stubGlobal(

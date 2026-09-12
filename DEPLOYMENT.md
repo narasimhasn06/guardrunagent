@@ -123,6 +123,30 @@ its own Supabase project.
      `{DASHBOARD_URL}/auth/callback` itself, the same callback route
      Google OAuth and password-reset links already use
      (`dashboard/app/auth/callback/route.ts`).
+   - **Port must be a real SMTP port** (465 for SSL, 587 for STARTTLS) --
+     any other value fails silently from the app's point of view: GoTrue
+     hangs trying to connect, eventually 504s, and this project's own
+     `_send_invite_email` (see the entry above logging its `AuthApiError`)
+     only ever sees a generic connection/timeout error, not "wrong port."
+     Caught live: a placeholder port left in this field produced
+     `Dial tcp: lookup smtp.host.com on ...: no such host`, visible only
+     in Supabase's own **Logs -> Auth Logs** (filter Log Type = Auth),
+     not in Railway's backend logs or the dashboard's own error message.
+   - **Testing with a personal Gmail account as the SMTP relay**: works
+     (host `smtp.gmail.com`, port `587`), but needs an **App Password**
+     (Google Account -> Security -> 2-Step Verification must already be
+     on -> search "App passwords" -- it's not one of the listed
+     "Second steps" methods, it's a separate page), not the account's
+     real login password. Even once delivery succeeds, expect the email
+     to **land in spam**: Gmail's own SMTP relay doesn't have SPF/DKIM/
+     DMARC set up for a `noreply@guardrunagent.com`-style sender that
+     doesn't match the authenticated Gmail account's own domain --
+     exactly what Supabase's own "designed for personal rather than
+     transactional email" warning on this page is about. Fine for
+     confirming the flow works end-to-end; not a substitute for a real
+     transactional provider (Resend, SendGrid, Postmark, SES, ...) with
+     its own domain verified before relying on invite emails reaching
+     an inbox reliably.
 4. Decide the deploy region (`region: oregon` in `render.yaml` is a
    placeholder -- Section 5 says this should be "chosen based on where
    pilot customers are concentrated," which hasn't been decided).

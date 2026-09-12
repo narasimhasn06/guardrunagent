@@ -61,7 +61,9 @@ export function OrgMembersPanel({
         throw new Error(body?.error ?? "Couldn't send the invite — try again.");
       }
       const invite = (await response.json()) as PendingInviteOut;
-      if (!invite.invite_email_sent) {
+      if (invite.invite_email_sent) {
+        setInviteNotice(`Invite sent to ${invite.email}.`);
+      } else {
         setInviteNotice(`No email was sent to ${invite.email} — they may already have an account. Let them know directly.`);
       }
       setEmail("");
