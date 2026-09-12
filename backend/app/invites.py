@@ -5,7 +5,6 @@ import logging
 from fastapi import HTTPException, status
 from supabase_auth.errors import AuthApiError
 
-from app.config import get_settings
 from app.db import maybe_single_result
 
 logger = logging.getLogger(__name__)
@@ -31,22 +30,25 @@ def _send_invite_email(supabase, email: str) -> bool:
     app/alerting.py's post_to_slack, which tracks delivery as a bool
     (guardrail_activity.alert_sent) rather than raising either.
 
-    redirect_to points at /auth/confirm, not /auth/callback --
-    admin-issued links like this one are always Supabase's implicit
-    flow (an access token in the URL *fragment*, invisible server-side),
-    since PKCE needs a client-generated code_verifier that doesn't exist
-    for a link generated server-side on our backend's behalf.
-    /auth/callback only ever handles the `?code=` PKCE exchange Google
-    OAuth and password-reset use -- caught live when an invite link
-    landed on /login?error=auth with the token stranded, unexchanged, in
-    the fragment. dashboard/app/auth/confirm/page.tsx is the client-side
-    counterpart that can actually see and process it.
+    No `redirect_to`/`options` passed here, deliberately: the template
+    (edited directly in the Supabase dashboard) no longer uses its own
+    auto-generated `{{ .ConfirmationURL }}` link at all -- that link
+    *is* the action that consumes the invite token, so anything that
+    merely fetches it (an email provider's own link-safety scanner,
+    chief among them) silently burns the invite's one-and-only use
+    before a human ever clicks. Caught live in production: the same
+    token verified four times within 17 minutes, the first just 49
+    seconds after sending -- an automated pre-fetch, not a human.
+    The template instead links to `{DASHBOARD_URL}/auth/confirm?
+    token_hash={{ .TokenHash }}` -- an inert page that only calls
+    `supabase.auth.verifyOtp({token_hash, type: "invite"})`, consuming
+    the token, in response to an explicit button click
+    (dashboard/app/auth/confirm/page.tsx). `{{ .TokenHash }}` is
+    populated from the invite itself, independent of any `redirect_to`
+    passed here.
     """
-    settings = get_settings()
-    options = {"redirect_to": f"{settings.dashboard_url.rstrip('/')}/auth/confirm"} if settings.dashboard_url else None
-
     try:
-        supabase.auth.admin.invite_user_by_email(email, options=options)
+        supabase.auth.admin.invite_user_by_email(email)
         return True
     except AuthApiError as exc:
         # Covers both the expected case (email_exists/user_already_exists)

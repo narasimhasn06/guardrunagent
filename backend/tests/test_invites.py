@@ -14,25 +14,12 @@ admin API, best-effort, never failing the invite itself.
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 from supabase_auth.errors import AuthApiError
 
-from app.config import Settings
 from app.invites import create_pending_invite
 from tests.fakes import FakeSupabase
 
 ORG_ID = "11111111-1111-1111-1111-111111111111"
-
-
-def _settings(dashboard_url: str | None = None) -> Settings:
-    return Settings(
-        supabase_url="https://example.supabase.co",
-        supabase_service_role_key="dummy-service-role-key",
-        supabase_jwt_secret="dummy-jwt-secret",
-        api_key_pepper="test-pepper-not-a-real-secret",
-        dashboard_url=dashboard_url,
-    )
 
 
 def _fake(invite_email_error: Exception | None = None) -> FakeSupabase:
@@ -48,8 +35,7 @@ def _fake(invite_email_error: Exception | None = None) -> FakeSupabase:
 def test_successful_send_records_invite_email_sent_true():
     fake = _fake()
 
-    with patch("app.invites.get_settings", return_value=_settings()):
-        invite = create_pending_invite(fake, ORG_ID, "New.Hire@Example.com", "member")
+    invite = create_pending_invite(fake, ORG_ID, "New.Hire@Example.com", "member")
 
     assert invite["id"] == "invite-1"
     insert_calls = [c for c in fake.recorded_calls if c[0] == "insert" and c[1] == "org_invites"]
@@ -59,24 +45,12 @@ def test_successful_send_records_invite_email_sent_true():
         "role": "member",
         "invite_email_sent": True,
     }
+    # No options/redirect_to passed -- the token-consuming link now lives
+    # entirely in the Supabase-side email template
+    # ({{ .TokenHash }} -> dashboard/app/auth/confirm), not anything this
+    # call configures. See _send_invite_email's own docstring for why.
     invite_calls = [c for c in fake.recorded_calls if c[0] == "invite_user_by_email"]
     assert invite_calls == [("invite_user_by_email", "new.hire@example.com", None)]
-
-
-def test_passes_the_dashboard_auth_confirm_page_as_redirect_to_when_configured():
-    fake = _fake()
-
-    with patch("app.invites.get_settings", return_value=_settings(dashboard_url="https://app.example.com/")):
-        create_pending_invite(fake, ORG_ID, "new.hire@example.com", "member")
-
-    invite_calls = [c for c in fake.recorded_calls if c[0] == "invite_user_by_email"]
-    # rstrip('/') on the configured dashboard_url -- no double slash.
-    # /auth/confirm, not /auth/callback -- this is an implicit-flow
-    # (hash-fragment token) link, which a server-side route can't see;
-    # see _send_invite_email's own docstring.
-    assert invite_calls == [
-        ("invite_user_by_email", "new.hire@example.com", {"redirect_to": "https://app.example.com/auth/confirm"})
-    ]
 
 
 def test_email_already_registered_is_not_a_failure_but_records_sent_false():
@@ -88,8 +62,7 @@ def test_email_already_registered_is_not_a_failure_but_records_sent_false():
     already_registered = AuthApiError("A user with this email address has already been registered", 422, "email_exists")
     fake = _fake(invite_email_error=already_registered)
 
-    with patch("app.invites.get_settings", return_value=_settings()):
-        invite = create_pending_invite(fake, ORG_ID, "new.hire@example.com", "member")
+    invite = create_pending_invite(fake, ORG_ID, "new.hire@example.com", "member")
 
     assert invite["id"] == "invite-1"
     insert_calls = [c for c in fake.recorded_calls if c[0] == "insert" and c[1] == "org_invites"]
@@ -103,8 +76,7 @@ def test_a_genuine_delivery_failure_also_does_not_fail_the_invite():
     delivery_failure = AuthApiError("SMTP error", 500, None)
     fake = _fake(invite_email_error=delivery_failure)
 
-    with patch("app.invites.get_settings", return_value=_settings()):
-        invite = create_pending_invite(fake, ORG_ID, "new.hire@example.com", "member")
+    invite = create_pending_invite(fake, ORG_ID, "new.hire@example.com", "member")
 
     assert invite["id"] == "invite-1"
     insert_calls = [c for c in fake.recorded_calls if c[0] == "insert" and c[1] == "org_invites"]

@@ -115,18 +115,28 @@ its own Supabase project.
    - **Templates** tab -> **Invite user**: customize the subject/body to
      your own wording. This is a separate template from "Confirm
      signup" (used for ordinary account creation) -- editing it doesn't
-     touch that flow. Keep `{{ .ConfirmationURL }}` (or an equivalent
-     link built from `{{ .TokenHash }}`) in the body; that's what the
-     invited person actually clicks.
-   - Nothing to set for `redirect_to` beyond `DASHBOARD_URL` (Railway
-     variable, see below) -- `app/invites.py` builds
-     `{DASHBOARD_URL}/auth/confirm` itself. **Not** the same
-     `/auth/callback` route Google OAuth and password-reset use --
-     admin-issued invite links are always Supabase's implicit flow (an
-     access token in the URL fragment, invisible server-side), which
-     `/auth/callback`'s server-side `?code=` exchange can't handle.
-     `dashboard/app/auth/confirm/page.tsx` is the client-side page built
-     for that case -- see CLAUDE.md's decisions log.
+     touch that flow. **Do not use `{{ .ConfirmationURL }}`** (the
+     template's own default link) -- that link points straight at
+     Supabase's server-side verify-and-redirect endpoint, which *is* the
+     action that consumes the invite's one-and-only use. Caught live in
+     production: an email provider's own link-safety scanner fetched
+     that link 49 seconds after the invite was sent -- long before any
+     human could have -- silently burning it, so every subsequent real
+     click failed as "already used." Build the link from `{{ .TokenHash }}`
+     instead, pointing at this project's own dashboard:
+     ```
+     https://<your-dashboard-domain>/auth/confirm?token_hash={{ .TokenHash }}
+     ```
+     That page (`dashboard/app/auth/confirm/page.tsx`) is inert on load --
+     a scanner fetching it does nothing -- and only calls
+     `supabase.auth.verifyOtp({token_hash, type: "invite"})`, the action
+     that actually consumes the token, in response to an explicit
+     "Accept invitation" button click. See CLAUDE.md's decisions log for
+     the full incident.
+   - Nothing to set for `redirect_to` -- `app/invites.py`'s
+     `_send_invite_email` doesn't pass one; the link the invited person
+     clicks comes entirely from the template above, not from anything
+     configured on the API call.
    - **Port must be a real SMTP port** (465 for SSL, 587 for STARTTLS) --
      any other value fails silently from the app's point of view: GoTrue
      hangs trying to connect, eventually 504s, and this project's own
