@@ -655,6 +655,27 @@ rationale lives in the referenced code's own comments.
   belong to an organization" the pre-existing check already used.
   Doesn't retroactively fix orgs already duplicated in production by
   this race -- those need manual cleanup via SQL.
+- **Correction to the entry above: the "duplicate org" evidence wasn't
+  actually a race.** Follow-up investigation, requested specifically
+  because the fix above was written from a screenshot rather than a
+  full query: `select o.id, o.name, o.created_at, m.email, m.role from
+  orgs o join org_members m on m.org_id = o.id where o.name in (...)`
+  against the four suspect orgs showed each one's `org_members` row
+  belonged to a **different** email (`...sn101@gmail.com`,
+  `...sn06@gmail.com`, `...sn101+1@gmail.com`, `...sn101+2@gmail.com`)
+  -- four distinct test signups (Gmail `+1`/`+2` aliases among them),
+  not one `auth_user_id` racing itself. `orgs.name` was never unique to
+  begin with (only `api_key_hash` is -- see the schema), so two
+  different people typing the same placeholder org name ("Organization
+  Name 101") during manual testing is expected, not corruption. Also
+  directly confirmed via `pg_constraint` that
+  `org_members_auth_user_id_key` genuinely exists on production, ruling
+  out the "constraint silently missing" half of the previous entry's
+  theory too. The `create_org` hardening above is still correct,
+  defensible code (the check-then-insert genuinely isn't atomic, and an
+  unhandled `23505` would still be a real bug if that race ever does
+  happen) -- it just wasn't proven to be the cause of what was actually
+  observed here, and there was no data to clean up.
 - **Forgot-password links had the exact same email-scanner-burns-the-
   token bug as invites, plus a second gap: even a working link never let
   the user actually set a new password.** docs/04-ui-ux-design.md
