@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import HTTPException, status
 from supabase_auth.errors import AuthApiError
 
 from app.config import get_settings
 from app.db import maybe_single_result
+
+logger = logging.getLogger(__name__)
 
 # Supabase Auth's own error codes for "this email already has an
 # account" -- returned by invite_user_by_email when the target email is
@@ -33,12 +37,18 @@ def _send_invite_email(supabase, email: str) -> bool:
     try:
         supabase.auth.admin.invite_user_by_email(email, options=options)
         return True
-    except AuthApiError:
+    except AuthApiError as exc:
         # Covers both the expected case (email_exists/user_already_exists)
         # and a genuine delivery failure (misconfigured SMTP, etc.) --
         # either way, the pending invite itself must not fail because of
         # it; invite_email_sent (below) is how the dashboard surfaces the
-        # difference to an admin, not an exception here.
+        # difference to an admin, not an exception here. Logged either way
+        # (nothing else does -- caught live when a real SMTP misconfig on a
+        # brand-new email produced the exact same "(no email sent)" UI as
+        # the expected already-registered case, with no way to tell them
+        # apart from Railway's own request logs, which only show the 201
+        # from create_pending_invite's own insert).
+        logger.warning("invite_user_by_email failed for %s: code=%s message=%s", email, exc.code, exc.message)
         return False
 
 
