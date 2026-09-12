@@ -627,3 +627,31 @@ rationale lives in the referenced code's own comments.
   all clear `inviteNotice` at the start, same as `handleInvite` already
   did for a *new* invite attempt -- any action taken on the screen
   dismisses a stale notice from a previous one.
+- **`POST /orgs`'s existence check wasn't atomic with its own inserts --
+  a double submission could create two full orgs instead of the second
+  one being rejected.** Caught live in production: the Super Admin
+  Organizations page showed the same org name ("Organization Name 101")
+  listed twice, each with its own single member -- proof both requests
+  fully succeeded rather than the second cleanly 409ing. Same underlying
+  class of bug as the `resolve_or_join_org` race documented above (a
+  brand-new user's first authenticated load can fire more than one
+  request that lands here close together), just never patched for this
+  endpoint: `app/routers/orgs.py`'s `create_org` checks for an existing
+  `org_members` row, then inserts a new `orgs` row, then a new
+  `org_members` row, with no protection between the check and either
+  insert. `org_members.auth_user_id` is unique, so the losing request's
+  membership insert should hit a real `23505` -- but unlike
+  `resolve_or_join_org`, `create_org` never caught it, so it either
+  raised an unhandled 500 or (if that unique constraint isn't actually
+  present on this project -- worth checking directly, given
+  `...0007`-`...0010` were found silently unapplied in staging earlier
+  this project's history) succeeded outright, leaving the loser fully
+  admin of a second, duplicate org. Fixed the same way as
+  `resolve_or_join_org`: the `org_members` insert is wrapped in
+  `try`/`except postgrest.exceptions.APIError`, and on `23505` the
+  org row this request just created is deleted (no cross-table
+  transaction available via postgrest, so this is a compensating delete
+  rather than a rollback) before returning the same 409 "You already
+  belong to an organization" the pre-existing check already used.
+  Doesn't retroactively fix orgs already duplicated in production by
+  this race -- those need manual cleanup via SQL.

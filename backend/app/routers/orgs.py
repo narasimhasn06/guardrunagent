@@ -3,6 +3,7 @@ from __future__ import annotations
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from postgrest.exceptions import APIError
 
 from app.api_keys import hash_api_key
 from app.auth import JwtIdentity, is_platform_admin, resolve_or_join_org, verify_jwt_identity
@@ -64,13 +65,30 @@ def create_org(body: OrgCreateIn, identity: JwtIdentity = Depends(verify_jwt_ide
     org_result = supabase.table("orgs").insert({"name": org_name, "api_key_hash": key_hash}).execute()
     org_id = org_result.data[0]["id"]
 
-    supabase.table("org_members").insert(
-        {
-            "org_id": org_id,
-            "auth_user_id": str(identity.auth_user_id),
-            "email": identity.email,
-            "role": "admin",
-        }
-    ).execute()
+    # The existence check above isn't atomic with this insert, so two
+    # near-simultaneous submissions for the same user (a double-click, a
+    # slow request retried, two tabs) can both pass it and both get this
+    # far -- caught live in production as two separate orgs, each with
+    # its own org_members row for the same auth_user_id, listed side by
+    # side under the same name in the Super Admin Organizations page.
+    # org_members.auth_user_id is unique, so only one of the two inserts
+    # below can actually succeed; the loser gets a 23505 here instead of
+    # an unhandled 500 (same pattern as app/auth.py's
+    # resolve_or_join_org), and its just-created org is deleted rather
+    # than left behind as an orphan with zero members.
+    try:
+        supabase.table("org_members").insert(
+            {
+                "org_id": org_id,
+                "auth_user_id": str(identity.auth_user_id),
+                "email": identity.email,
+                "role": "admin",
+            }
+        ).execute()
+    except APIError as exc:
+        if exc.code == "23505":
+            supabase.table("orgs").delete().eq("id", org_id).execute()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You already belong to an organization")
+        raise
 
     return OrgCreateOut(org_id=org_id, org_name=org_name, api_key=api_key)
