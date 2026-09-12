@@ -102,17 +102,22 @@ its own Supabase project.
 3. **Configure real invite email delivery** (needed for
    `app/invites.py`'s `create_pending_invite`, added during
    implementation -- see CLAUDE.md's decisions log), on each Supabase
-   project separately:
-   - **Authentication -> Providers -> Email -> SMTP Settings**: enable
-     "Custom SMTP" and fill in a real provider's credentials. Supabase's
-     own default sender has a low rate limit meant for local development
-     and testing only -- it is not reliable for real invite volume.
-   - **Authentication -> Email Templates -> Invite user**: customize
-     the subject/body to your own wording. This is a separate template
-     from "Confirm signup" (used for ordinary account creation) --
-     editing it doesn't touch that flow. Keep `{{ .ConfirmationURL }}`
-     (or an equivalent link built from `{{ .TokenHash }}`) in the body;
-     that's what the invited person actually clicks.
+   project separately. Supabase moved this out of **Authentication ->
+   Providers -> Email** (that page is now just the provider's own
+   toggles/security settings, no SMTP or templates on it) into its own
+   **Authentication -> Emails** section (a "Notifications" group in the
+   sidebar, direct path `/project/<ref>/auth/templates`), which has two
+   tabs:
+   - **SMTP Settings** tab: enable "Custom SMTP" and fill in a real
+     provider's credentials. Supabase's own default sender has a low
+     rate limit meant for local development and testing only -- it is
+     not reliable for real invite volume.
+   - **Templates** tab -> **Invite user**: customize the subject/body to
+     your own wording. This is a separate template from "Confirm
+     signup" (used for ordinary account creation) -- editing it doesn't
+     touch that flow. Keep `{{ .ConfirmationURL }}` (or an equivalent
+     link built from `{{ .TokenHash }}`) in the body; that's what the
+     invited person actually clicks.
    - Nothing to set for `redirect_to` beyond `DASHBOARD_URL` (Railway
      variable, see below) -- `app/invites.py` builds
      `{DASHBOARD_URL}/auth/callback` itself, the same callback route
