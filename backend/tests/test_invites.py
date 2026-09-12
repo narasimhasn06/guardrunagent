@@ -63,16 +63,19 @@ def test_successful_send_records_invite_email_sent_true():
     assert invite_calls == [("invite_user_by_email", "new.hire@example.com", None)]
 
 
-def test_passes_the_dashboard_auth_callback_as_redirect_to_when_configured():
+def test_passes_the_dashboard_auth_confirm_page_as_redirect_to_when_configured():
     fake = _fake()
 
     with patch("app.invites.get_settings", return_value=_settings(dashboard_url="https://app.example.com/")):
         create_pending_invite(fake, ORG_ID, "new.hire@example.com", "member")
 
     invite_calls = [c for c in fake.recorded_calls if c[0] == "invite_user_by_email"]
-    # rstrip('/') on the configured dashboard_url -- no double slash
+    # rstrip('/') on the configured dashboard_url -- no double slash.
+    # /auth/confirm, not /auth/callback -- this is an implicit-flow
+    # (hash-fragment token) link, which a server-side route can't see;
+    # see _send_invite_email's own docstring.
     assert invite_calls == [
-        ("invite_user_by_email", "new.hire@example.com", {"redirect_to": "https://app.example.com/auth/callback"})
+        ("invite_user_by_email", "new.hire@example.com", {"redirect_to": "https://app.example.com/auth/confirm"})
     ]
 
 

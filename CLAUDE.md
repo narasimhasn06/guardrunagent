@@ -509,3 +509,35 @@ rationale lives in the referenced code's own comments.
   path's own 200ms p99 budget (see the API-key-hashing entry above) is
   about how long its own logic takes on the happy path, not this
   ceiling.
+- **Invite links needed their own confirmation page --
+  `/auth/callback` can't complete them.** Caught live in production
+  once SMTP was actually sending: clicking an invite email landed on
+  `/login?error=auth`, with the invited user's own access token
+  stranded in the URL *fragment* (carried along only because a browser
+  preserves the previous URL's fragment across a redirect whose
+  `Location` doesn't specify one) -- and since the tester's browser
+  already held a Super Admin session cookie, the dashboard just kept
+  rendering as that admin, silently, with no visible error at all.
+  Root cause: `/auth/callback/route.ts` only ever handles Supabase's
+  **PKCE** flow (a `?code=` query param) -- what `signInWithOAuth`
+  (Google) and `resetPasswordForEmail` both use, since a *client*
+  starts those flows and can generate the `code_verifier` PKCE needs.
+  An admin-issued link (`app/invites.py`'s `_send_invite_email`, via
+  Supabase Auth's admin `invite_user_by_email` API) has no such
+  client-side origin, so Supabase always redirects it back via the
+  **implicit** flow instead -- `#access_token=...&refresh_token=...` in
+  the URL fragment, which a server-side Route Handler can never see (
+  fragments never reach the server). `/auth/callback` saw no `code`,
+  treated it as a failed login, and redirected away -- correctly, for
+  what it's built for, but it was never going to handle this case.
+  Fix: a new `dashboard/app/auth/confirm/page.tsx` -- a client
+  component, not a Route Handler, since only client-side JS can see
+  `window.location.hash`. `createClient()` (`@supabase/ssr`) parses and
+  persists a fragment-borne session automatically on construction
+  (`detectSessionInUrl`, on by default); `getSession()` awaits that
+  same initialization, so the page just waits for it and redirects
+  (`/` on success, `/login?error=auth` on failure). `_send_invite_email`
+  now points `redirect_to` at `{DASHBOARD_URL}/auth/confirm` instead of
+  `/auth/callback` -- the only change on the backend side; Google OAuth
+  and password-reset are untouched, since both already worked correctly
+  through the PKCE path.
