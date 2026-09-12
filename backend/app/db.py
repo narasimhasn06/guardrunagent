@@ -29,9 +29,21 @@ def get_supabase() -> Client:
     mode, at the cost of one connection per concurrent request instead of
     multiplexing several over one, which is a non-issue at this project's
     traffic volume.
+
+    Also sets an explicit 20s timeout, up from httpx's own 5s default --
+    neither postgrest-py nor supabase_auth ever set one either, and the
+    HTTP/2 fix above didn't touch it. Caught live right after that fix
+    shipped: `httpx.ReadTimeout` on `invite_user_by_email` once Custom
+    SMTP was actually working -- Supabase's own `/auth/v1/invite`
+    sends the email synchronously as part of handling the request, so a
+    real (if slow) delivery can outrun a 5s budget that a table read
+    never would. Applied to the one shared client rather than per-call,
+    same as the HTTP/2 setting -- normal reads finish in well under 20s
+    regardless, so this only changes how long a genuinely stuck request
+    takes to fail, not the fast path's actual latency.
     """
     settings = get_settings()
-    options = ClientOptions(httpx_client=httpx.Client(http2=False))
+    options = ClientOptions(httpx_client=httpx.Client(http2=False, timeout=20.0))
     return create_client(settings.supabase_url, settings.supabase_service_role_key, options=options)
 
 

@@ -493,3 +493,19 @@ rationale lives in the referenced code's own comments.
   connections the same way and doesn't have this failure mode, at the
   cost of one connection per concurrent request instead of multiplexing
   several over one -- a non-issue at this project's traffic volume.
+- **The Supabase client's timeout is now an explicit 20s, not httpx's
+  5s default.** Caught live immediately after the HTTP/2 fix above
+  shipped and Custom SMTP started genuinely working: inviting a team
+  member in production hit `httpx.ReadTimeout`. Neither postgrest-py
+  nor `supabase_auth` ever set a timeout on the client they build
+  internally either, so this had always been 5s -- fine for an
+  ordinary table read, too tight for `invite_user_by_email`, which
+  Supabase's `/auth/v1/invite` handles by sending the email
+  *synchronously* before responding, so a real (if slow) SMTP delivery
+  can outrun it. `app/db.py`'s `get_supabase()` now also passes
+  `timeout=20.0` on the same shared `httpx.Client`, alongside
+  `http2=False` -- one client, one place, covers both. Only changes how
+  long a genuinely stuck request takes to fail; the guardrail-check
+  path's own 200ms p99 budget (see the API-key-hashing entry above) is
+  about how long its own logic takes on the happy path, not this
+  ceiling.
