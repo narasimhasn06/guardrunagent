@@ -313,6 +313,107 @@ describe("TeamSection", () => {
     expect(refreshMock).not.toHaveBeenCalled();
   });
 
+  // Added directly in response to there being no way to remove a member
+  // except editing org_members by hand via the Supabase SQL Editor. See
+  // backend/app/routers/settings.py's remove_team_member.
+  describe("removing a member", () => {
+    it("hides the Actions column entirely for a non-admin", () => {
+      render(<TeamSection team={[makeMember()]} pendingInvites={[]} isAdmin={false} />);
+      expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
+    });
+
+    it("asks for confirmation before removing", async () => {
+      const user = userEvent.setup();
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(
+        <TeamSection
+          team={[makeMember({ role: "admin" }), makeMember({ id: "other-id", email: "other@example.com", role: "member" })]}
+          pendingInvites={[]}
+          isAdmin
+        />
+      );
+      await user.click(screen.getAllByRole("button", { name: "Remove" })[1]);
+
+      expect(screen.getByText("Remove other@example.com?")).toBeInTheDocument();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("cancelling the confirmation does nothing", async () => {
+      const user = userEvent.setup();
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(<TeamSection team={[makeMember({ role: "member" })]} pendingInvites={[]} isAdmin />);
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+      expect(screen.queryByText(/remove jane@example.com\?/i)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("removes the member after confirming", async () => {
+      const user = userEvent.setup();
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(<TeamSection team={[makeMember({ role: "member" })]} pendingInvites={[]} isAdmin />);
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+      await user.click(screen.getByRole("button", { name: "Yes, remove" }));
+
+      expect(fetchMock).toHaveBeenCalledWith("/api/settings/team/33333333-3333-3333-3333-333333333333", {
+        method: "DELETE",
+      });
+      await waitFor(() => expect(refreshMock).toHaveBeenCalled());
+    });
+
+    it("disables Remove for the organization's only admin", () => {
+      render(<TeamSection team={[makeMember({ role: "admin" })]} pendingInvites={[]} isAdmin />);
+      expect(screen.getByRole("button", { name: "Remove" })).toBeDisabled();
+    });
+
+    it("does not disable Remove when another admin exists", () => {
+      render(
+        <TeamSection
+          team={[makeMember({ role: "admin" }), makeMember({ id: "other-id", email: "other@example.com", role: "admin" })]}
+          pendingInvites={[]}
+          isAdmin
+        />
+      );
+      expect(screen.getAllByRole("button", { name: "Remove" })[0]).not.toBeDisabled();
+    });
+
+    it("shows the backend's error message when removal is rejected", async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          json: async () => ({ error: "Every organization needs at least one Admin -- promote someone else first." }),
+        })
+      );
+
+      // Two admins in props (so Remove isn't disabled client-side),
+      // simulating a race where the backend's own check still catches it.
+      render(
+        <TeamSection
+          team={[makeMember({ role: "admin" }), makeMember({ id: "other-id", email: "other@example.com", role: "admin" })]}
+          pendingInvites={[]}
+          isAdmin
+        />
+      );
+      await user.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+      await user.click(screen.getByRole("button", { name: "Yes, remove" }));
+
+      await waitFor(() =>
+        expect(screen.getByText("Every organization needs at least one Admin -- promote someone else first.")).toBeInTheDocument()
+      );
+      expect(refreshMock).not.toHaveBeenCalled();
+    });
+  });
+
   it("cancels a pending invite", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });

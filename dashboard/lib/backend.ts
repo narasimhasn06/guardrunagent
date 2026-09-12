@@ -560,6 +560,21 @@ export async function updateTeamMemberRole(memberId: string, role: TeamRole): Pr
   return response.json();
 }
 
+// Removes a member from the org entirely -- distinct from
+// updateTeamMemberRole above. Added directly in response to there being
+// no way to do this except editing org_members by hand via the Supabase
+// SQL Editor. Same last-admin 409 as the role change.
+export async function removeTeamMember(memberId: string): Promise<void> {
+  const response = await authorizedFetch(`/settings/team/${memberId}`, { method: "DELETE" });
+  if (!response.ok) {
+    if (response.status === 409) {
+      const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+      throw new BackendError(409, body?.detail ?? "Every organization needs at least one Admin.");
+    }
+    throw new BackendError(response.status, `Failed to remove team member (${response.status})`);
+  }
+}
+
 // ---- GET /admin/orgs, GET /admin/orgs/:id/members, POST /admin/orgs/:id/invite ----
 // Super Admin role -- a platform-level operator, separate from each org's
 // own admin/member roles, who can see every org (MeOut.is_platform_admin
@@ -625,4 +640,22 @@ export async function inviteOrgMember(orgId: string, email: string, role: TeamRo
     throw new BackendError(response.status, `Failed to invite member (${response.status})`);
   }
   return response.json();
+}
+
+// Removes a member from any org -- the Super Admin equivalent of
+// removeTeamMember above. Added directly in response to there being no
+// way to do this except editing org_members by hand via the Supabase
+// SQL Editor.
+export async function removeOrgMember(orgId: string, memberId: string): Promise<void> {
+  const response = await authorizedFetch(`/admin/orgs/${orgId}/members/${memberId}`, { method: "DELETE" });
+  if (response.status === 404) {
+    throw new BackendError(404, "Organization or member not found");
+  }
+  if (!response.ok) {
+    if (response.status === 409) {
+      const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+      throw new BackendError(409, body?.detail ?? "Every organization needs at least one Admin.");
+    }
+    throw new BackendError(response.status, `Failed to remove member (${response.status})`);
+  }
 }

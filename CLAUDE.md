@@ -336,3 +336,41 @@ rationale lives in the referenced code's own comments.
   request) so the situation is avoided rather than just rejected after
   the fact. The backend check stays the real gate either way, for a race
   between two admins demoting each other at once.
+- **A member can now be removed from an org entirely, not just demoted.**
+  Added directly in response to a real workaround: with no delete
+  endpoint anywhere, removing someone meant editing `org_members` (and
+  `auth.users`) by hand via the Supabase SQL Editor. New
+  `DELETE /settings/team/{id}` (an org's own admin, own org) and
+  `DELETE /admin/orgs/{org_id}/members/{id}` (a Super Admin, any org,
+  404 if the org or member doesn't exist). Both share the last-admin
+  guard with the existing role-demotion check via a new
+  `app/org_members.py`'s `ensure_not_last_admin(supabase, org_id,
+  member_id)` -- extracted out of `update_team_member_role` rather than
+  duplicated a third time; safe to call unconditionally (it's a no-op
+  select for anyone who isn't currently the org's only Admin).
+  `components/settings/team-section.tsx` and
+  `components/admin/org-members-panel.tsx` both gained a "Remove"
+  button with an inline confirm step (mirroring
+  `components/settings/api-key-section.tsx`'s confirm-before-regenerate
+  pattern) and the same pre-emptive last-admin disable the role toggle
+  already had.
+- **Invite-conflict message reworded for clarity.** "This email already
+  belongs to a team" read as ambiguous -- easy to misparse as "already
+  invited into the org you're inviting them into" rather than "belongs
+  somewhere else already." `app/invites.py`'s `create_pending_invite`
+  now says "This email already belongs to another Org / Team."
+- **Clarified: inviting someone never sends an email from this app.**
+  Real confusion during testing -- a re-invited user "didn't receive an
+  email to confirm." `org_invites` is purely an internal reservation
+  row; the invited person has to be told out-of-band (Slack, whatever)
+  to go sign in themselves with the same email, at which point
+  `resolve_or_join_org` (`app/auth.py`) links them automatically. This
+  was already the documented design (docs/03-low-level-design.md
+  Section 2.2 step 6, docs/04-ui-ux-design.md Section 4.1) but
+  docs/07-user-manual.md's Team section didn't say so explicitly, so
+  it's easy to assume otherwise -- corrected there now, including that a
+  Supabase-sent confirmation email (email/password signups only, not
+  Google) is a separate thing from this app's own invite. No code
+  change: an actual "send a real invite email" feature would be new
+  scope (a mail provider isn't named in any doc) and hasn't been
+  requested as such.

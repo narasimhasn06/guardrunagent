@@ -13,12 +13,12 @@ const ROLE_LABELS: Record<TeamRole, string> = { admin: "Admin", member: "Member"
  * mistaken invite -- not explicitly asked for in the doc, but without it
  * a bad invite (typo'd email, wrong role) would be permanently stuck.
  *
- * `isAdmin` gates the invite form, role-toggle button, and cancel-invite
- * button -- a Member sees the same list read-only. Bug fix: these
- * controls used to render for every org member regardless of role, and
- * nothing on the backend checked role either, so a Member could invite
- * teammates or promote themselves to Admin. This is a UI convenience
- * only; the real gate is the backend's own check (see
+ * `isAdmin` gates the invite form, role-toggle button, remove button, and
+ * cancel-invite button -- a Member sees the same list read-only. Bug fix:
+ * these controls used to render for every org member regardless of role,
+ * and nothing on the backend checked role either, so a Member could
+ * invite teammates or promote themselves to Admin. This is a UI
+ * convenience only; the real gate is the backend's own check (see
  * backend/app/routers/settings.py's _require_admin) -- never rely on
  * this prop alone for security. */
 export function TeamSection({
@@ -36,15 +36,17 @@ export function TeamSection({
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
-  const [roleError, setRoleError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
 
-  // Bug fix: demoting the org's only Admin (most often an Admin
-  // demoting themselves) used to succeed with no way back -- the role
-  // toggle is gated on isAdmin, which flips to false the moment their
-  // own role does. Disabling the toggle for the last admin's own row
-  // avoids the situation entirely; backend/app/routers/settings.py's
-  // update_team_member_role rejects it either way, for a race between
-  // two admins acting at once.
+  // Bug fix: demoting (or removing) the org's only Admin -- most often
+  // an Admin acting on themselves -- used to succeed with no way back:
+  // the role toggle is gated on isAdmin, which flips to false the
+  // moment their own role does, and removal is permanent regardless.
+  // Disabling both for the last admin's own row avoids the situation
+  // entirely; the backend rejects it either way (see
+  // backend/app/routers/settings.py's update_team_member_role and
+  // remove_team_member), for a race between two admins acting at once.
   const adminCount = team.filter((member) => member.role === "admin").length;
 
   async function handleInvite(event: FormEvent<HTMLFormElement>) {
@@ -84,7 +86,7 @@ export function TeamSection({
 
   async function handleToggleRole(member: TeamMemberOut) {
     setPendingActionId(member.id);
-    setRoleError(null);
+    setActionError(null);
     try {
       const response = await fetch(`/api/settings/team/${member.id}`, {
         method: "PATCH",
@@ -97,7 +99,25 @@ export function TeamSection({
       }
       router.refresh();
     } catch (err) {
-      setRoleError(err instanceof Error ? err.message : "Couldn't change this member's role — try again.");
+      setActionError(err instanceof Error ? err.message : "Couldn't change this member's role — try again.");
+    } finally {
+      setPendingActionId(null);
+    }
+  }
+
+  async function handleRemoveMember(memberId: string) {
+    setPendingActionId(memberId);
+    setActionError(null);
+    try {
+      const response = await fetch(`/api/settings/team/${memberId}`, { method: "DELETE" });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Couldn't remove this member — try again.");
+      }
+      setConfirmRemoveId(null);
+      router.refresh();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Couldn't remove this member — try again.");
     } finally {
       setPendingActionId(null);
     }
@@ -112,6 +132,7 @@ export function TeamSection({
           <tr>
             <th>Email</th>
             <th>Role</th>
+            {isAdmin && <th>Actions</th>}
           </tr>
         </thead>
         <tbody>
@@ -136,6 +157,35 @@ export function TeamSection({
                     ROLE_LABELS[member.role]
                   )}
                 </td>
+                {isAdmin &&
+                  (confirmRemoveId === member.id ? (
+                    <td className="team-invite-role-cell">
+                      <span>Remove {member.email}?</span>
+                      <button
+                        type="button"
+                        className="link-button"
+                        disabled={pendingActionId === member.id}
+                        onClick={() => handleRemoveMember(member.id)}
+                      >
+                        Yes, remove
+                      </button>
+                      <button type="button" className="link-button" onClick={() => setConfirmRemoveId(null)}>
+                        Cancel
+                      </button>
+                    </td>
+                  ) : (
+                    <td>
+                      <button
+                        type="button"
+                        className="link-button"
+                        disabled={isLastAdmin}
+                        title={isLastAdmin ? "Every organization needs at least one Admin" : undefined}
+                        onClick={() => setConfirmRemoveId(member.id)}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  ))}
               </tr>
             );
           })}
@@ -144,9 +194,9 @@ export function TeamSection({
               <td>
                 {invite.email} <span className="page-placeholder">(invited)</span>
               </td>
-              <td className="team-invite-role-cell">
-                <span className="mono">{ROLE_LABELS[invite.role]}</span>
-                {isAdmin && (
+              <td className="mono">{ROLE_LABELS[invite.role]}</td>
+              {isAdmin && (
+                <td>
                   <button
                     type="button"
                     className="link-button"
@@ -155,13 +205,13 @@ export function TeamSection({
                   >
                     Cancel invite
                   </button>
-                )}
-              </td>
+                </td>
+              )}
             </tr>
           ))}
           {team.length === 0 && pendingInvites.length === 0 && (
             <tr>
-              <td colSpan={2} className="page-placeholder">
+              <td colSpan={isAdmin ? 3 : 2} className="page-placeholder">
                 No team members yet.
               </td>
             </tr>
@@ -169,7 +219,7 @@ export function TeamSection({
         </tbody>
       </table>
 
-      {roleError && <p className="login-error">{roleError}</p>}
+      {actionError && <p className="login-error">{actionError}</p>}
 
       {isAdmin && (
         <form onSubmit={handleInvite} className="new-rule-form">

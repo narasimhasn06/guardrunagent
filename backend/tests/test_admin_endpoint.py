@@ -248,3 +248,74 @@ class TestInviteOrgMember:
             response = client.post(f"/admin/orgs/{ORG_A}/invite", json={"email": "new.hire@example.com"})
 
         assert response.status_code == 409
+
+
+class TestRemoveOrgMember:
+    """DELETE /admin/orgs/:id/members/:id -- lets a Super Admin remove a
+    member from any org. Added directly in response to there being no
+    way to do this except editing org_members by hand via the Supabase
+    SQL Editor. Mirrors tests/test_settings_endpoint.py's
+    TestRemoveTeamMember, since both go through the same
+    app/org_members.py's ensure_not_last_admin.
+    """
+
+    OTHER_MEMBER_ID = "66666666-6666-6666-6666-666666666666"
+
+    def test_missing_auth_is_rejected(self, client):
+        response = client.delete(f"/admin/orgs/{ORG_A}/members/{self.OTHER_MEMBER_ID}")
+        assert response.status_code == 401
+
+    def test_unknown_org_returns_404(self, client):
+        _override_platform_admin()
+        fake = FakeSupabase(table_data={"orgs": {"select": None}})
+
+        with patch("app.routers.admin.get_supabase", return_value=fake):
+            response = client.delete(f"/admin/orgs/{ORG_A}/members/{self.OTHER_MEMBER_ID}")
+
+        assert response.status_code == 404
+
+    def test_removes_the_member(self, client):
+        _override_platform_admin()
+        fake = FakeSupabase(
+            table_data={
+                "orgs": {"select": {"name": "Acme Inc"}},
+                "org_members": {
+                    "select": [{"id": "some-admin-id"}],
+                    "delete": [{"id": self.OTHER_MEMBER_ID}],
+                },
+            }
+        )
+
+        with patch("app.routers.admin.get_supabase", return_value=fake):
+            response = client.delete(f"/admin/orgs/{ORG_A}/members/{self.OTHER_MEMBER_ID}")
+
+        assert response.status_code == 204
+
+    def test_unknown_member_id_returns_404(self, client):
+        _override_platform_admin()
+        fake = FakeSupabase(
+            table_data={
+                "orgs": {"select": {"name": "Acme Inc"}},
+                "org_members": {"select": [{"id": "some-admin-id"}], "delete": []},
+            }
+        )
+
+        with patch("app.routers.admin.get_supabase", return_value=fake):
+            response = client.delete(f"/admin/orgs/{ORG_A}/members/{self.OTHER_MEMBER_ID}")
+
+        assert response.status_code == 404
+
+    def test_cannot_remove_the_organizations_only_admin(self, client):
+        _override_platform_admin()
+        fake = FakeSupabase(
+            table_data={
+                "orgs": {"select": {"name": "Acme Inc"}},
+                "org_members": {"select": [{"id": self.OTHER_MEMBER_ID}]},
+            }
+        )
+
+        with patch("app.routers.admin.get_supabase", return_value=fake):
+            response = client.delete(f"/admin/orgs/{ORG_A}/members/{self.OTHER_MEMBER_ID}")
+
+        assert response.status_code == 409
+        assert "at least one Admin" in response.json()["detail"]
