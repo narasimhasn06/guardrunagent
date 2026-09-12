@@ -72,7 +72,7 @@ def get_org_members(
     )
     invites_result = (
         supabase.table("org_invites")
-        .select("id, email, role, created_at")
+        .select("id, email, role, created_at, invite_email_sent")
         .eq("org_id", str(org_id))
         .order("created_at")
         .execute()

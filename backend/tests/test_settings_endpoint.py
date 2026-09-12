@@ -40,6 +40,7 @@ INVITE_ROW = {
     "email": "new.hire@example.com",
     "role": "member",
     "created_at": "2026-09-10T10:00:00+00:00",
+    "invite_email_sent": True,
 }
 
 
@@ -294,7 +295,14 @@ class TestInviteTeamMember:
         assert response.json()["email"] == "new.hire@example.com"
 
         insert_calls = [c for c in fake.recorded_calls if c[0] == "insert" and c[1] == "org_invites"]
-        assert insert_calls[0][2] == {"org_id": ORG_ID, "email": "new.hire@example.com", "role": "member"}
+        assert insert_calls[0][2] == {
+            "org_id": ORG_ID,
+            "email": "new.hire@example.com",
+            "role": "member",
+            "invite_email_sent": True,
+        }
+        invite_calls = [c for c in fake.recorded_calls if c[0] == "invite_user_by_email"]
+        assert invite_calls == [("invite_user_by_email", "new.hire@example.com", None)]
 
     def test_already_a_member_returns_409(self, client):
         _override_jwt_auth()

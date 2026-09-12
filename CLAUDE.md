@@ -403,3 +403,45 @@ rationale lives in the referenced code's own comments.
   `Sequence`) so a fake table op can simulate a raised client exception,
   not just a returned response -- needed to test this without a real
   Supabase project to actually race against.
+- **Inviting a team member now sends a real email.** Direct follow-up to
+  the previous entry's "no email at all" clarification -- once that was
+  explained, the actual ask was to make it work like real account
+  creation: a real email, with a verify-and-log-in link, just with
+  invite-specific wording. Built without any new library or service:
+  Supabase Auth (already the auth provider) has its own admin "invite
+  user" API -- `supabase.auth.admin.invite_user_by_email(email,
+  options={"redirect_to": ...})`, confirmed present in the installed
+  `supabase` client -- which creates the person's Supabase account and
+  sends an email through Supabase's own configured mail delivery, using
+  a separate, dashboard-customizable "Invite user" template distinct
+  from "Confirm signup" (so the wording can say "invited to Org/Team,
+  click to verify and log in" without touching the signup-confirmation
+  template at all). Clicking the link lands on the same
+  `dashboard/app/auth/callback/route.ts` Google OAuth and password-reset
+  links already use -- no new dashboard route needed.
+  `app/invites.py`'s `create_pending_invite` calls a new
+  `_send_invite_email` helper after creating the `org_invites` row,
+  passing `redirect_to={DASHBOARD_URL}/auth/callback` when
+  `DASHBOARD_URL` is set (reusing the existing optional setting, no new
+  config value). Mirrors `app/alerting.py`'s `post_to_slack`: tracked as
+  a bool, never raises, never blocks or fails the invite itself -- the
+  `org_invites` row is the real source of truth regardless of whether
+  the email actually sends. The expected, common failure case:
+  Supabase's admin API can't "invite" an email that already has an
+  account (its own `email_exists`/`user_already_exists` error codes,
+  caught specifically) -- most often someone previously removed via
+  `remove_team_member`/`remove_org_member`, which only ever deletes the
+  `org_members` row, never `auth.users`. That's not an error; they're
+  linked automatically the next time they simply sign in
+  (`resolve_or_join_org`), same as before this feature existed. New
+  `org_invites.invite_email_sent` column (default `true`, so pre-existing
+  rows created before this feature don't show a false "delivery failed"
+  signal for something never attempted) persists the real outcome so the
+  Team/Organizations lists can mark a never-delivered invite
+  ("(no email sent)") for any pending invite, not just the one just
+  created. `PendingInviteOut` grows the same field; `team-section.tsx`
+  and `org-members-panel.tsx` both show a notice right after inviting
+  when it didn't send. Needs the Supabase project's own SMTP configured
+  for real delivery volume and its "Invite user" email template
+  customized to real wording -- both dashboard settings, not code; see
+  `DEPLOYMENT.md`.

@@ -88,7 +88,8 @@ CREATE TABLE org_invites (
   org_id UUID REFERENCES orgs(id) NOT NULL,
   email TEXT NOT NULL UNIQUE,           -- one pending invite per email, globally
   role TEXT NOT NULL DEFAULT 'member',  -- 'admin' | 'member', mirrors org_members.role
-  created_at TIMESTAMPTZ DEFAULT now()
+  created_at TIMESTAMPTZ DEFAULT now(),
+  invite_email_sent BOOLEAN NOT NULL DEFAULT true  -- added during implementation, see note below
 );
 
 -- Super Admin role, added during implementation (see note below) -- a
@@ -111,7 +112,11 @@ asynchronously afterward — so it was never usable for the Activity Log's
 "session link"). `org_invites` holds a pending Team invite (Settings →
 Team → invite-by-email) until the invited person's first login, at which
 point `app/auth.py`'s `verify_jwt` consumes it and creates their
-`org_members` row. `platform_admins` backs the Super Admin role (see
+`org_members` row. `org_invites.invite_email_sent` records whether
+`app/invites.py`'s `create_pending_invite` actually sent a real invite
+email via Supabase Auth's admin API when the row was created (false most
+often means that email already has a Supabase account, not a delivery
+failure) -- see Section 4.5. `platform_admins` backs the Super Admin role (see
 Section 4.6 and CLAUDE.md's "Planned, not yet built" entry this closes) --
 a platform-level operator who can see every org, granted with no
 self-serve path (rows are added manually via SQL, see `DEPLOYMENT.md`).
@@ -280,7 +285,7 @@ this section is a summary, not a duplicate of that detail:
 | `GET /guardrail-activity` | Supabase JWT | Paginated Activity Log tab (Section 6, Guardrail Rules page). |
 | `PATCH /rules/{id}` | Supabase JWT | Edits an existing rule (name/pattern/action/enabled) — rule creation is `POST /rules`, implied but not spelled out above. |
 | `POST /rules/starter` | Supabase JWT | One-click enable of the pre-built starter rule set (docs/04-ui-ux-design.md Section 3.5). |
-| `GET /settings`, `POST /settings/api-key/regenerate`, `PUT /settings/slack-webhook`, `POST /settings/slack-webhook/test`, `POST /settings/team/invite`, `DELETE /settings/team/invites/{id}`, `PATCH /settings/team/{id}`, `DELETE /settings/team/{id}` | Supabase JWT | The full Settings page (Section 6): API key display/regenerate, Slack webhook config/test, team invite/cancel/role/remove management. The four team-management mutations (`POST /settings/team/invite`, `DELETE /settings/team/invites/{id}`, `PATCH /settings/team/{id}`, `DELETE /settings/team/{id}`) additionally require the caller's `org_members.role` to be `'admin'` (`app/routers/settings.py`'s `_require_admin`, added as a bug fix -- see CLAUDE.md's decisions log) -- a Member can view the Team tab but not invite, cancel an invite, change any role, or remove anyone. `GET /settings`'s response includes `your_role` for the dashboard to render accordingly. Both `PATCH /settings/team/{id}` (a demotion, `role: "member"`) and the new `DELETE /settings/team/{id}` 409 an action that would leave the org with zero Admins (`app/org_members.py`'s `ensure_not_last_admin`, shared by both) -- see CLAUDE.md's decisions log. |
+| `GET /settings`, `POST /settings/api-key/regenerate`, `PUT /settings/slack-webhook`, `POST /settings/slack-webhook/test`, `POST /settings/team/invite`, `DELETE /settings/team/invites/{id}`, `PATCH /settings/team/{id}`, `DELETE /settings/team/{id}` | Supabase JWT | The full Settings page (Section 6): API key display/regenerate, Slack webhook config/test, team invite/cancel/role/remove management. The four team-management mutations (`POST /settings/team/invite`, `DELETE /settings/team/invites/{id}`, `PATCH /settings/team/{id}`, `DELETE /settings/team/{id}`) additionally require the caller's `org_members.role` to be `'admin'` (`app/routers/settings.py`'s `_require_admin`, added as a bug fix -- see CLAUDE.md's decisions log) -- a Member can view the Team tab but not invite, cancel an invite, change any role, or remove anyone. `GET /settings`'s response includes `your_role` for the dashboard to render accordingly. Both `PATCH /settings/team/{id}` (a demotion, `role: "member"`) and the new `DELETE /settings/team/{id}` 409 an action that would leave the org with zero Admins (`app/org_members.py`'s `ensure_not_last_admin`, shared by both) -- see CLAUDE.md's decisions log. `POST /settings/team/invite` also sends a real invite email via Supabase Auth's admin API (`app/invites.py`'s `create_pending_invite`, added after real testing showed the earlier "no email at all" design was a genuine gap -- see CLAUDE.md's decisions log); its response's `invite_email_sent` reports whether that actually went out (false most often just means the email already has a Supabase account, not a failure). |
 | `GET /rules` | **Either** API key or Supabase JWT | Dual-purpose: the SDK's local rule cache fetch (Section 3.2) and the dashboard's Rules page read the same path, dispatched by whichever credential is presented — see `app/auth.py`'s `verify_api_key_or_jwt`. Always returns all rules including disabled ones; the SDK's local matcher filters `enabled` client-side. |
 
 ### 4.6 Super Admin endpoints (added during implementation)
@@ -298,7 +303,7 @@ every other endpoint here (Section 7: no Postgres RLS yet).
 |---|---|---|
 | `GET /admin/orgs` | Supabase JWT + `platform_admins` row | Every org on the platform, with its member count. Powers the "Organizations" screen's list view (docs/04-ui-ux-design.md). |
 | `GET /admin/orgs/{org_id}/members` | Supabase JWT + `platform_admins` row | The requested org's team and pending invites (same shape as `GET /settings`'s team/pending_invites, scoped to any org rather than the caller's own). 404 if the org doesn't exist. |
-| `POST /admin/orgs/{org_id}/invite` | Supabase JWT + `platform_admins` row | Added after the initial read-only build (see CLAUDE.md's decisions log): lets a Super Admin invite a new member into any org. Shares its conflict/insert logic with `POST /settings/team/invite` via `app/invites.py`'s `create_pending_invite`. 404 if the org doesn't exist; otherwise the same 409s as the Settings version (already a member / already invited). |
+| `POST /admin/orgs/{org_id}/invite` | Supabase JWT + `platform_admins` row | Added after the initial read-only build (see CLAUDE.md's decisions log): lets a Super Admin invite a new member into any org. Shares its conflict/insert *and* invite-email logic with `POST /settings/team/invite` via `app/invites.py`'s `create_pending_invite` -- same real email, same `invite_email_sent` in the response. 404 if the org doesn't exist; otherwise the same 409s as the Settings version (already a member / already invited). |
 | `DELETE /admin/orgs/{org_id}/members/{member_id}` | Supabase JWT + `platform_admins` row | Added directly in response to there being no delete path anywhere -- lets a Super Admin remove a member from any org. 404 if the org or member doesn't exist; 409s the same last-admin case `DELETE /settings/team/{id}` does, via the same shared `ensure_not_last_admin`. Still deliberately narrow otherwise -- no equivalent cross-org role-change or cancel-invite endpoint; those stay with each org's own admins. |
 
 `GET /me`'s response also grows an `is_platform_admin: bool` field

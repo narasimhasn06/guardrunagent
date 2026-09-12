@@ -433,6 +433,12 @@ export interface PendingInviteOut {
   email: string;
   role: TeamRole;
   created_at: string;
+  // Whether the backend actually sent a real invite email via Supabase
+  // Auth's admin API -- false most often means this email already has a
+  // Supabase account (e.g. previously removed from an org, now
+  // re-invited), not a delivery failure to chase. See
+  // backend/app/invites.py's create_pending_invite.
+  invite_email_sent: boolean;
 }
 
 export type FailMode = "open" | "closed";

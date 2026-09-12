@@ -52,6 +52,7 @@ function makeInvite(overrides: Partial<PendingInviteOut> = {}): PendingInviteOut
     email: "new.hire@example.com",
     role: "member",
     created_at: "2026-09-10T10:00:00Z",
+    invite_email_sent: true,
     ...overrides,
   };
 }
@@ -195,6 +196,29 @@ describe("OrgMembersPanel", () => {
         })
       );
       await waitFor(() => expect(refreshMock).toHaveBeenCalled());
+    });
+
+    it("shows a notice when the invite was created but no email was sent", async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({ ok: true, json: async () => makeInvite({ invite_email_sent: false }) })
+      );
+
+      render(<OrgMembersPanel orgId={ORG_ID} team={[]} pendingInvites={[]} />);
+      await user.type(screen.getByLabelText("Invite by email"), "new.hire@example.com");
+      await user.click(screen.getByRole("button", { name: "Invite" }));
+
+      await waitFor(() =>
+        expect(screen.getByText(/no email was sent to new\.hire@example\.com/i)).toBeInTheDocument()
+      );
+    });
+
+    it("marks a pending invite that never got an email", () => {
+      render(
+        <OrgMembersPanel orgId={ORG_ID} team={[]} pendingInvites={[makeInvite({ invite_email_sent: false })]} />
+      );
+      expect(screen.getByText("(no email sent)")).toBeInTheDocument();
     });
 
     it("shows the backend's error message when an invite fails", async () => {
