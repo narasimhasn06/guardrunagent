@@ -28,6 +28,18 @@ class Sequence:
         self.responses = list(responses)
 
 
+class Raises:
+    """Wrap an exception instance to have execute() raise it instead of
+    returning a result -- for simulating a real client-library error
+    (e.g. postgrest.exceptions.APIError, as the real Supabase client
+    raises on a constraint violation) rather than a normal response. Can
+    appear anywhere a normal response can, including inside a Sequence.
+    """
+
+    def __init__(self, exc: Exception):
+        self.exc = exc
+
+
 class FakeResult:
     def __init__(self, data: Any = None, count: int | None = None):
         self.data = data
@@ -101,6 +113,9 @@ class FakeQuery:
 
         if isinstance(raw, Sequence):
             raw = self._client._next_sequence_value(self._table_name, self._active_op or "select", raw)
+
+        if isinstance(raw, Raises):
+            raise raw.exc
 
         data, count = _interpret(raw)
 

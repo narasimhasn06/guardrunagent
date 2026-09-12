@@ -374,3 +374,32 @@ rationale lives in the referenced code's own comments.
   change: an actual "send a real invite email" feature would be new
   scope (a mail provider isn't named in any doc) and hasn't been
   requested as such.
+- **`resolve_or_join_org`'s select-then-insert wasn't atomic -- a
+  concurrent race 500'd a brand-new user's very first login.** Caught
+  live in production from a real Railway log
+  (`postgrest.exceptions.APIError: duplicate key value violates unique
+  constraint "org_members_auth_user_id_key"`, Postgres `23505`) for a
+  deleted-then-reinvited user's first Google sign-in. Root cause: a
+  brand-new user's first authenticated page load fires more than one
+  request that each land in `resolve_or_join_org` around the same time
+  (the dashboard layout's `GET /me` and the Home page's `GET
+  /dashboard-summary`, at minimum) -- both see no existing `org_members`
+  row (the `select` check) before either's `insert` commits, so both try
+  to insert the same `auth_user_id`, and the loser hits the unique
+  constraint instead of just getting back the winner's row. This was
+  never reachable before the Super Admin work in this log: a first-time
+  self-signup always went through `POST /orgs` (a different, single
+  insert with its own membership check), so a race here needed a
+  *pre-invited* first login specifically -- rare enough, or invite-only
+  onboarding recent enough, that it hadn't surfaced until now. Fixed in
+  `app/auth.py`'s `resolve_or_join_org`: the `insert` is now wrapped in
+  `try`/`except postgrest.exceptions.APIError`, and on exactly code
+  `23505` it re-fetches and returns the now-existing row instead of
+  re-raising (any other error code still propagates as before). No
+  retry loop or advisory lock needed -- one re-fetch is enough, since the
+  only way this insert conflicts is another request's insert having
+  already succeeded for the exact same `auth_user_id`.
+  `tests/fakes.py` gained a `Raises` wrapper (parallel to the existing
+  `Sequence`) so a fake table op can simulate a raised client exception,
+  not just a returned response -- needed to test this without a real
+  Supabase project to actually race against.
