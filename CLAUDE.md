@@ -445,3 +445,33 @@ rationale lives in the referenced code's own comments.
   for real delivery volume and its "Invite user" email template
   customized to real wording -- both dashboard settings, not code; see
   `DEPLOYMENT.md`.
+- **`_send_invite_email` now logs the real Supabase error instead of
+  swallowing it silently.** Caught live configuring SMTP on staging for
+  the entry above: a genuinely new email got the same "(no email sent)"
+  UI as the expected already-registered case, and Railway's own request
+  logs showed nothing useful -- the `AuthApiError` was caught and
+  discarded with no trace. Root cause (found only via Supabase's own
+  Logs -> Auth Logs, not Railway) was an invalid SMTP port left as a
+  placeholder, producing a DNS/connection timeout, not an
+  already-registered response. `app/invites.py`'s `_send_invite_email`
+  now logs the error's `code` and `message` via a module-level
+  `logging.getLogger(__name__).warning(...)` (standard library, no new
+  dependency -- matches this codebase's otherwise-nonexistent logging
+  story) before returning `False`, so this doesn't require re-deriving
+  from Supabase's dashboard next time. `DEPLOYMENT.md` also gained the
+  concrete pitfalls hit configuring this live: the port must be a real
+  SMTP port (465/587, not a placeholder), and testing with a personal
+  Gmail account as the relay needs an App Password (not the account's
+  real password) and will land in spam (no SPF/DKIM/DMARC alignment for
+  a custom-domain sender) -- expected for verifying the flow works, not
+  a substitute for a real transactional provider before relying on
+  delivery.
+- **Invite forms now confirm success, not just failure.** Once SMTP
+  actually worked end-to-end, the gap became obvious: `handleInvite` in
+  both `team-section.tsx` and `org-members-panel.tsx` only ever set
+  `inviteNotice` for the "no email sent" case -- the ordinary
+  successful-send path silently cleared the form and refreshed the list
+  with no on-screen confirmation at all. Both now also set
+  `inviteNotice` to `"Invite sent to {email}."` when
+  `invite_email_sent` is `true`, reusing the same state/element as the
+  existing warning notice rather than adding a second one.

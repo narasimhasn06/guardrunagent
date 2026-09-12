@@ -66,7 +66,9 @@ export function TeamSection({
         throw new Error(body?.error ?? "Couldn't send the invite — try again.");
       }
       const invite = (await response.json()) as PendingInviteOut;
-      if (!invite.invite_email_sent) {
+      if (invite.invite_email_sent) {
+        setInviteNotice(`Invite sent to ${invite.email}.`);
+      } else {
         // Most often means this email already has a Supabase account
         // (e.g. previously removed from an org) -- they'll be linked
         // automatically once they just sign in, but no fresh invite
