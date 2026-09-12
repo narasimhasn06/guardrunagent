@@ -541,3 +541,26 @@ rationale lives in the referenced code's own comments.
   `/auth/callback` -- the only change on the backend side; Google OAuth
   and password-reset are untouched, since both already worked correctly
   through the PKCE path.
+- **`/auth/confirm` also needed adding to the proxy's own public-path
+  allowlist -- the page above wasn't enough by itself.** Caught live in
+  production immediately after deploying the entry above: invite links
+  *still* landed on `/login`, this time with no `?error=auth` at all --
+  a different failure than the one that fix addressed. Root cause:
+  `dashboard/lib/supabase/proxy.ts`'s `PUBLIC_PATHS` (checked by
+  `updateSession`, the proxy Next.js 16 renamed from `middleware.ts`)
+  never had `/auth/confirm` added to it, only `/auth/callback`. Every
+  request to `/auth/confirm` has no session cookie yet -- that only
+  gets created *client-side*, after the page's own JS turns the URL
+  fragment into one -- so the proxy saw "no user, not a public path"
+  and redirected to `/login` **before the page's client-side code ever
+  ran**, on every single request, regardless of how valid the invite
+  token was. Same fragment-preservation quirk as the entry above then
+  stranded the token on `/login` instead of `/auth/confirm`. Ruled out
+  first: Supabase's own Redirect URLs allowlist (already covered by an
+  existing `https://.../**` wildcard, so not the cause) and the root
+  `app/layout.tsx` (no auth check at all, only
+  `app/(dashboard)/layout.tsx` and this proxy do). Fixed by adding
+  `/auth/confirm` to `PUBLIC_PATHS`, mirroring `/auth/callback`.
+  `dashboard/tests/proxy.test.ts` is this file's first test coverage at
+  all -- confirmed it actually reproduces the bug (fails without the
+  fix, passes with it) rather than trusting the read of the code alone.
