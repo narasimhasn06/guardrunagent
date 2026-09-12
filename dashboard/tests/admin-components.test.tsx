@@ -232,6 +232,29 @@ describe("OrgMembersPanel", () => {
       expect(screen.getByText("(no email sent)")).toBeInTheDocument();
     });
 
+    it("clears the invite notice once another action is taken on the screen", async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockImplementation((url: string) =>
+          url === `/api/admin/orgs/${ORG_ID}/invite`
+            ? Promise.resolve({ ok: true, json: async () => makeInvite() })
+            : Promise.resolve({ ok: true })
+        )
+      );
+
+      render(<OrgMembersPanel orgId={ORG_ID} team={[makeMember({ role: "member" })]} pendingInvites={[]} />);
+
+      await user.type(screen.getByLabelText("Invite by email"), "new.hire@example.com");
+      await user.click(screen.getByRole("button", { name: "Invite" }));
+      await waitFor(() => expect(screen.getByText("Invite sent to new.hire@example.com.")).toBeInTheDocument());
+
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+      await user.click(screen.getByRole("button", { name: "Yes, remove" }));
+
+      await waitFor(() => expect(screen.queryByText("Invite sent to new.hire@example.com.")).not.toBeInTheDocument());
+    });
+
     it("shows the backend's error message when an invite fails", async () => {
       const user = userEvent.setup();
       vi.stubGlobal(
